@@ -2,6 +2,8 @@
 
 This file is a submission checklist, not a claim that a wallet transaction has already been made.
 
+Public prototype: https://dreamcurve-somnia-155519b47159.herokuapp.com/
+
 ## Read-only integration verified
 
 - Network: Somnia Shannon testnet
