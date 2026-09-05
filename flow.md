@@ -374,7 +374,8 @@ Không cần đợi có LLM key để bắt đầu. Việc quan trọng nhất l
 Việc chủ dự án vẫn cần cung cấp/làm trước khi nộp:
 
 - [ ] Ví testnet có STT trả gas và tUSDC để ký một giao dịch thật.
-- [ ] Xác minh URL Heroku public; dùng Heroku Postgres để scorecard không mất dữ liệu khi dyno restart.
+- [x] Deploy và xác minh URL Heroku public trên desktop, live API và accessibility.
+- [ ] Gắn Heroku Postgres để scorecard không mất dữ liệu khi dyno restart; cần duyệt gói trả phí trước.
 - [ ] Chạy collector đủ lâu để tích lũy market đã resolve và giữ lại ít nhất một tx hash thật.
 - [ ] Đưa code lên public GitHub, quay video 2–3 phút và điền link vào submission.
 - [ ] Kiểm tra link video ở cửa sổ ẩn danh và kiểm tra URL production trên desktop/mobile.
