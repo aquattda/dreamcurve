@@ -53,6 +53,20 @@ npm run test:e2e
 npm start            # serve the production build + collector
 ```
 
+## Deploy on Heroku
+
+The repository includes a `Procfile`, binds to Heroku's injected `PORT`, and selects `0.0.0.0` automatically when `DYNO` is present. The Node build creates `dist`, then `npm start` serves the app and runs the collector.
+
+For durable scoring, attach Heroku Postgres. Its automatically managed `DATABASE_URL` takes priority over local SQLite. Use one web dyno; no worker or server signer is required. Without Postgres, the app can use `DATABASE_PATH=/tmp/dreamcurve.sqlite` for a temporary preview, but records disappear after a dyno restart.
+
+```bash
+heroku config:set COLLECTOR_ENABLED=true --app <app-name>
+heroku addons:create heroku-postgresql:essential-0 --app <app-name>
+git push heroku main
+```
+
+The database add-on is paid. Do not provision it without reviewing the current Heroku price. Never set a private key: users sign all writes in their browser wallet.
+
 ## Deploy on Railway
 
 The repository includes `railway.json` and pins Node 22.13 in `.nvmrc`. Create a persistent volume, mount it into the service, set `DATABASE_PATH` to a file inside that mount, then deploy. Railway uses `/api/health` as the health check. No private key belongs in the deployment environment: all write transactions are signed in the user's browser wallet.
@@ -70,7 +84,7 @@ Read-only collector ── snapshots ── deterministic agents
         │                              │
         │                         canonical forecast
         │                              │
-        └──────────────────────── SQLite scorecard
+        └──────────────────────── SQLite/Postgres scorecard
                                        │
 Browser wallet ── fresh quote ── signed Event Contract order
 ```
