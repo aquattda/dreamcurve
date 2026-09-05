@@ -8,11 +8,14 @@ import type { Hex } from 'viem';
 import { demoState } from '../shared/demo';
 import { generateForecasts, midpoint, type ArenaState } from '../shared/domain';
 import { createStore } from './store';
+import { createPostgresStore } from './store-postgres';
 import { exchange, readMarket, publicConfig, chainClient } from './protocol';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const store = createStore(process.env.DATABASE_PATH || path.join(root, 'data/dreamcurve.sqlite'));
-const state: ArenaState = {mode:'live',status:'connecting',message:'Connecting to DreamDEX testnet…',updatedAt:0,markets:[],forecasts:[],histories:{},scores:store.scores(),proofs:store.proofs()};
+const store = process.env.DATABASE_URL
+  ? await createPostgresStore(process.env.DATABASE_URL)
+  : createStore(process.env.DATABASE_PATH || path.join(root, 'data/dreamcurve.sqlite'));
+const state: ArenaState = {mode:'live',status:'connecting',message:'Connecting to DreamDEX testnet…',updatedAt:0,markets:[],forecasts:[],histories:{},scores:await store.scores(),proofs:await store.proofs()};
 let rows: BinaryMarket[] = [];
 let lastDiscover = 0;
 let busy = false;
@@ -39,18 +42,18 @@ async function collect() {
     state.forecasts=[];
     state.histories={};
     for(const m of state.markets){
-      store.saveMarket(m);store.snapshot(m,{at:m.updatedAt,spot:m.spot,probability:midpoint(m)});
-      const history=store.history(m.id); state.histories[m.id]=history;
-      const forecasts=generateForecasts(m,history);state.forecasts.push(...forecasts);store.canonical(m,forecasts);
+      await store.saveMarket(m);await store.snapshot(m,{at:m.updatedAt,spot:m.spot,probability:midpoint(m)});
+      const history=await store.history(m.id); state.histories[m.id]=history;
+      const forecasts=generateForecasts(m,history);state.forecasts.push(...forecasts);await store.canonical(m,forecasts);
     }
-    for(const pending of store.pending().filter(p=>p.expiry<Date.now()).slice(0,8)){
-      try { const resolved=await exchange.client.getMarketOnchain(pending.id as Hex);if(resolved.finalized&&resolved.isResolved&&!resolved.isVoided&&[0,1].includes(resolved.winningOutcome))store.settle(pending.id,resolved.winningOutcome===0?1:0); }catch(e){console.warn('Settlement read:',errorMessage(e));}
+    for(const pending of (await store.pending()).filter(p=>p.expiry<Date.now()).slice(0,8)){
+      try { const resolved=await exchange.client.getMarketOnchain(pending.id as Hex);if(resolved.finalized&&resolved.isResolved&&!resolved.isVoided&&[0,1].includes(resolved.winningOutcome))await store.settle(pending.id,resolved.winningOutcome===0?1:0); }catch(e){console.warn('Settlement read:',errorMessage(e));}
     }
-    state.scores=store.scores();state.proofs=store.proofs();
+    state.scores=await store.scores();state.proofs=await store.proofs();
     const failed=results.filter(r=>r.status==='rejected').length;
     state.status=failed?'degraded':'healthy';
     state.message=failed?`${failed} market reads failed; unavailable markets are hidden.`:rows.length?'Read-only collector connected. Quotes are rechecked before signing.':'Connected, but no active BTC/ETH contracts were found. Try again when a new window opens.';
-    state.updatedAt=Date.now();store.prune();
+    state.updatedAt=Date.now();await store.prune();
   }catch(e){state.status='degraded';state.message=`DreamDEX connection unavailable: ${errorMessage(e)}`;console.warn(state.message);}
   finally {busy=false;broadcast();}
 }
@@ -59,7 +62,7 @@ app.use((_req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.
 app.get('/api/health',(_req,res)=>res.json({status:state.status,chainId:50312,mode:'testnet',updatedAt:state.updatedAt,message:state.message}));
 app.get('/api/config',(_req,res)=>res.json(publicConfig));
 app.get('/api/arena',(req,res)=>{res.setHeader('Cache-Control','no-store');res.json(req.query.mode==='demo'?demoState():state);});
-app.get('/api/proofs',(_req,res)=>{res.setHeader('Content-Disposition','attachment; filename="dreamcurve-forecasts.json"');res.json({schema:1,network:50312,note:'Application-recorded forecasts; hashes are not on-chain commitments.',proofs:store.proofs()});});
+app.get('/api/proofs',async(_req,res)=>{res.setHeader('Content-Disposition','attachment; filename="dreamcurve-forecasts.json"');res.json({schema:1,network:50312,note:'Application-recorded forecasts; hashes are not on-chain commitments.',proofs:await store.proofs()});});
 app.get('/api/stream',(req,res)=>{
   if(streams.size>=100){res.status(503).json({error:'Connection limit reached; polling remains available.'});return;}
   res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache');res.setHeader('Connection','keep-alive');res.flushHeaders();
@@ -69,7 +72,7 @@ app.use('/api',(_req,res)=>res.status(404).json({error:'Unknown API route'}));
 const production=process.argv.includes('--production')||process.env.NODE_ENV==='production';
 if(production){app.use(express.static(path.join(root,'dist')));app.get('/{*path}',(_req,res)=>res.sendFile(path.join(root,'dist/index.html')));}
 else {const {createServer}=await import('vite');const vite=await createServer({server:{middlewareMode:true},appType:'custom'});app.use(vite.middlewares);app.use(async(req,res,next)=>{try{const template=await vite.transformIndexHtml(req.originalUrl,await readFile(path.join(root,'index.html'),'utf8'));res.status(200).type('html').send(template);}catch(e){next(e);}});}
-const host=process.env.HOST||'127.0.0.1';const port=Number(process.env.PORT||8787);
+const host=process.env.HOST||(process.env.DYNO?'0.0.0.0':'127.0.0.1');const port=Number(process.env.PORT||8787);
 const server=app.listen(port,host,()=>{console.log(`DreamCurve ready at http://${host}:${port}`);if(process.env.COLLECTOR_ENABLED!=='false')void collect();else{state.status='degraded';state.message='Live collector is disabled by configuration.';}});
 const timer=setInterval(()=>{if(process.env.COLLECTOR_ENABLED!=='false')void collect();},5000);
-for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{clearInterval(timer);for(const h of watches.values())h.stop();for(const res of streams)res.end();server.close(()=>{store.close();process.exit(0);});setTimeout(()=>process.exit(0),2000).unref();});
+for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{clearInterval(timer);for(const h of watches.values())h.stop();for(const res of streams)res.end();server.close(()=>{void Promise.resolve(store.close()).finally(()=>process.exit(0));});setTimeout(()=>process.exit(0),2000).unref();});
