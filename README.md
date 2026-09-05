@@ -71,7 +71,7 @@ git push heroku main
 
 The database add-on is paid. Do not provision it without reviewing the current Heroku price. Never set a private key: users sign all writes in their browser wallet.
 
-Current deployment: `dreamcurve-somnia`, Heroku-24, one Eco web dyno. It uses temporary SQLite until a Heroku Postgres plan is explicitly approved and attached.
+Current deployment: `dreamcurve-somnia`, Heroku-24, one Basic web dyno (the CLI currently reports about `$0.010/hour`, capped at `$7/month`). It uses temporary SQLite until a Heroku Postgres plan is explicitly approved and attached.
 
 ## Deploy on Railway
 
