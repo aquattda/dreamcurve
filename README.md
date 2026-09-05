@@ -4,6 +4,8 @@
 
 Built for the Somnia × DreamDEX Event Contracts Hackathon.
 
+**Live app:** [dreamcurve-somnia-155519b47159.herokuapp.com](https://dreamcurve-somnia-155519b47159.herokuapp.com/)
+
 ## What works
 
 - Editorial landing page and responsive application shell.
@@ -26,6 +28,8 @@ Built for the Somnia × DreamDEX Event Contracts Hackathon.
 | Mobile landing | Mobile arena |
 | --- | --- |
 | ![DreamCurve mobile landing](docs/screenshots/landing-mobile.png) | ![DreamCurve mobile arena](docs/screenshots/arena-mobile.png) |
+
+![Verified live Arena running on Heroku](docs/screenshots/heroku-live.png)
 
 ## Run locally
 
@@ -66,6 +70,8 @@ git push heroku main
 ```
 
 The database add-on is paid. Do not provision it without reviewing the current Heroku price. Never set a private key: users sign all writes in their browser wallet.
+
+Current deployment: `dreamcurve-somnia`, Heroku-24, one Eco web dyno. It uses temporary SQLite until a Heroku Postgres plan is explicitly approved and attached.
 
 ## Deploy on Railway
 
