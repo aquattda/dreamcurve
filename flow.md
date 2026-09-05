@@ -365,16 +365,16 @@ Không cần đợi có LLM key để bắt đầu. Việc quan trọng nhất l
 - [x] Landing page responsive và các trang Arena, Agents, Scorecard, Portfolio, Methodology.
 - [x] Đọc chain ID, Event Contracts, order book và price feed thật trên Somnia Shannon testnet.
 - [x] Bốn agent có phương pháp, lý do, ngưỡng `NO_TRADE` và version model rõ ràng.
-- [x] Collector lưu snapshot/forecast/settlement vào SQLite; forecast chuẩn là bản ghi bất biến.
+- [x] Collector lưu snapshot/forecast/settlement vào SQLite local hoặc PostgreSQL production; forecast chuẩn là bản ghi bất biến.
 - [x] Chế độ demo được gắn nhãn `ILLUSTRATIVE MODE`, không ghi vào database và không cho giao dịch.
 - [x] Luồng ví non-custodial, kiểm tra chain/status/expiry, báo giá theo độ sâu sổ lệnh, giới hạn trượt giá và kiểm tra receipt.
 - [x] Unit test, storage test, browser E2E, production build, live doctor và accessibility check.
-- [x] Cấu hình deploy Railway với health check `/api/health`.
+- [x] Cấu hình deploy Railway và Heroku; Heroku tự dùng `DATABASE_URL` khi gắn Postgres.
 
 Việc chủ dự án vẫn cần cung cấp/làm trước khi nộp:
 
 - [ ] Ví testnet có STT trả gas và tUSDC để ký một giao dịch thật.
-- [ ] Deploy public; gắn persistent volume vào `DATABASE_PATH` để scorecard không mất dữ liệu khi restart.
+- [ ] Xác minh URL Heroku public; dùng Heroku Postgres để scorecard không mất dữ liệu khi dyno restart.
 - [ ] Chạy collector đủ lâu để tích lũy market đã resolve và giữ lại ít nhất một tx hash thật.
 - [ ] Đưa code lên public GitHub, quay video 2–3 phút và điền link vào submission.
 - [ ] Kiểm tra link video ở cửa sổ ẩn danh và kiểm tra URL production trên desktop/mobile.
