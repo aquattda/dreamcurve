@@ -66,3 +66,12 @@
 
 @media(max-width:1280px) and (min-width:761px){.agent-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.arena-agent{min-height:345px}}
 @media(max-width:760px){.arena-heading{align-items:flex-start;margin-top:48px}.arena-heading h2{font-size:30px}.arena-agent{min-height:0;padding:20px}.arena-agent ul{min-height:0}.agent-button{min-height:46px}}
+
+/* Honest live-data failure state: distinct from a healthy empty market board. */
+.unavailable-state .empty-glyph.error{display:grid;width:58px;height:58px;place-items:center;border:2px solid #cc735e;border-radius:50%;color:#a84b39;font-family:'Space Grotesk Variable';font-size:31px;font-weight:700}
+.unavailable-state .eyebrow{margin-top:18px;color:#985241}
+.unavailable-state h1{max-width:760px}
+.retry-status{margin:0 0 20px;font-size:11px!important;color:#798174!important}
+.empty-actions{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.empty-actions .button{min-width:190px}
+@media(max-width:760px){.empty-state h1{font-size:32px;letter-spacing:-1.5px}.empty-actions{width:100%}.empty-actions .button{width:100%}}
