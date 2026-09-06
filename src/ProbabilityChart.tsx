@@ -91,6 +91,7 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
   const latest = points.at(-1);
   const selected = hoverIndex === null ? null : points[hoverIndex];
   const currentLabelY = latest ? Math.min(PLOT.top + PLOT_HEIGHT - 6, Math.max(PLOT.top + 16, latest.y)) : 0;
+  const tooltipSide = selected && selected.x > WIDTH / 2 ? 'place-left' : 'place-right';
 
   return <div className="interactive-chart">
     <div className="timeframe-bar" aria-label="Chart timeframe">
@@ -145,9 +146,9 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
         </g> : null}
       </svg>
       {selected ? <div
-        className="chart-tooltip"
+        className={`chart-tooltip ${tooltipSide}`}
         role="status"
-        style={{ left: `${Math.min(84, Math.max(16, (selected.x / WIDTH) * 100))}%`, top: `${Math.min(67, Math.max(6, (selected.y / HEIGHT) * 100))}%` }}
+        style={{ left: `${(selected.x / WIDTH) * 100}%`, top: `${Math.min(70, Math.max(30, (selected.y / HEIGHT) * 100))}%` }}
       >
         <time>{tooltipTime.format(selected.at)}</time>
         <div><span>YES probability</span><strong>{probability(selected.probability)}</strong></div>
