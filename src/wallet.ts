@@ -1,6 +1,6 @@
 import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED, ORDER_TYPE, type Portfolio } from '@somnia-chain/markets-sdk';
 import { somniaShannon } from '@somnia-chain/markets-sdk/chains';
-import { createPublicClient, createWalletClient, custom, http, type Address, type EIP1193Provider, formatUnits } from 'viem';
+import { createPublicClient, createWalletClient, custom, erc20Abi, http, type Address, type EIP1193Provider, formatUnits } from 'viem';
 import type { Market, Side } from '../shared/domain';
 import { decimalRaw } from '../shared/domain';
 
@@ -9,6 +9,12 @@ const INDEXER='https://dev.smk.somnia.host/v1/graphql';
 const WS='wss://api.infra.testnet.somnia.network/ws';
 const RPC='https://dream-rpc.somnia.network';
 const publicClient=createPublicClient({chain:somniaShannon,transport:http(RPC,{timeout:15_000,retryCount:1})});
+
+function testUsdcAddress(){
+  const address=SOMNIA_TESTNET_ADDRESSES.collateral??SOMNIA_TESTNET_ADDRESSES.testUsdc;
+  if(!address)throw new Error('The Shannon test tUSDC contract is not configured.');
+  return address;
+}
 
 async function switchShannon(provider:EIP1193Provider){
   try { await provider.request({method:'wallet_switchEthereumChain',params:[{chainId:'0xc488'}]}); }
@@ -30,6 +36,23 @@ function sdkFor(account:Address){
   const walletClient=createWalletClient({account,chain:somniaShannon,transport:custom(window.ethereum)});
   const sdk=new SomniaMarkets({chain:somniaShannon,wsRpcUrl:WS,indexerUrl:INDEXER,addresses:SOMNIA_TESTNET_ADDRESSES,priceFeed:SOMNIA_TESTNET_PRICE_FEED,walletClient});
   return {sdk,walletClient};
+}
+export async function loadTestUsdcBalance(account:Address){
+  const address=testUsdcAddress();
+  const [balance,decimals]=await Promise.all([
+    publicClient.readContract({address,abi:erc20Abi,functionName:'balanceOf',args:[account]}),
+    publicClient.readContract({address,abi:erc20Abi,functionName:'decimals'}),
+  ]);
+  return {raw:balance,decimals,formatted:formatUnits(balance,decimals)};
+}
+export async function claimTestUsdc(account:Address){
+  const {sdk,walletClient}=sdkFor(account);
+  const chainId=await walletClient.getChainId();
+  if(chainId!==50312)throw new Error('Switch your wallet to Somnia Testnet.');
+  const trader=sdk.client.createTrader({walletClient,publicClient});
+  const result=await trader.faucet({testUsdc:testUsdcAddress()});
+  if(result.receipt.status!=='success')throw new Error('The tUSDC faucet transaction was mined but reverted.');
+  return {hash:result.hash};
 }
 export async function placeStake(m:Market,side:Side,stakeText:string,account:Address,onQuoted?:(q:{shares:string;maxCost:string;limit:string})=>void){
   if(m.source!=='live')throw new Error('Trading is disabled for illustrative data.');
