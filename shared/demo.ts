@@ -15,10 +15,16 @@ export function demoState(now = Date.now()): ArenaState {
       noAsks: [0, 1, 2].map(n => ({price: 1 - price + 0.02 + n * 0.01, size: 60 + n * 30})),
       priceDecimals: 6, collateralDecimals: 6, tick: '10000', lot: '1000000', collateral: '', yesId: '', noId: '' };
   });
-  const histories: Record<string, Snapshot[]> = Object.fromEntries(markets.map((m, i) => [m.id, Array.from({length: 80}, (_, j) => ({
-    at: now - (79 - j) * 5000, spot: m.spot! * (1 + Math.sin(j * 0.9 + i) * 0.00008 - (79 - j) * 0.000003),
-    probability: Math.min(0.9, Math.max(0.1, m.yesAsks[0].price - (79 - j) * 0.0011 + Math.sin(j * 0.55 + i) * 0.025))
-  }))]));
+  const histories: Record<string, Snapshot[]> = Object.fromEntries(markets.map((m, i) => [m.id, Array.from({length: 80}, (_, j) => {
+    const probability = Math.min(0.9, Math.max(0.1, m.yesAsks[0].price - (79 - j) * 0.0011 + Math.sin(j * 0.55 + i) * 0.025));
+    return {
+      at: now - (79 - j) * 5000,
+      spot: m.spot! * (1 + Math.sin(j * 0.9 + i) * 0.00008 - (79 - j) * 0.000003),
+      probability,
+      yesPrice: Math.min(0.99, probability + 0.012),
+      noPrice: Math.min(0.99, 1 - probability + 0.018),
+    };
+  })]));
   const forecasts = markets.flatMap(m => generateForecasts(m, histories[m.id], now));
   const proofs: Proof[] = Array.from({length: 24}, (_, i) => {
     const agent = AGENTS[i % 4]; const outcome = Math.floor(i / 4) % 2;
