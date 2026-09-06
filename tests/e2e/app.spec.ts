@@ -30,6 +30,24 @@ test('illustrative markets cannot create wallet trades', async ({ page }) => {
   }
 });
 
+test('probability chart exposes timeframes, exact hover data, and contract prices in cents', async ({ page }) => {
+  await page.goto('/app?mode=demo');
+  await expect(page.getByText('Implied YES probability')).toBeVisible();
+  await expect(page.getByText('Mid price')).toBeVisible();
+  await expect(page.getByRole('button', { name: '1H', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'ALL', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Buy YES/ })).toContainText('¢');
+  await expect(page.getByRole('button', { name: /Buy NO/ })).toContainText('¢');
+
+  await page.locator('.prob-chart').hover({ position: { x: 320, y: 120 } });
+  const tooltip = page.getByRole('status');
+  await expect(tooltip).toContainText('YES probability');
+  await expect(tooltip).toContainText('NO probability');
+  await expect(tooltip).toContainText('YES price');
+  await expect(tooltip).toContainText('NO price');
+  await expect(tooltip).toContainText('¢');
+});
+
 test('methodology states the model and proof limitations', async ({ page }) => {
   await page.goto('/methodology');
   await expect(page.getByRole('heading', { name: /Know the model/ })).toBeVisible();
