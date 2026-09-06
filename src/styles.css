@@ -33,7 +33,9 @@
 .crosshair{pointer-events:none}
 .prob-chart .crosshair line{stroke:#54604f;stroke-dasharray:3 4;stroke-width:1}
 .prob-chart .crosshair circle{fill:#fff;stroke:#6fa82f;stroke-width:3}
-.chart-tooltip{position:absolute;z-index:4;width:218px;padding:12px 13px;border:1px solid #d9ded4;border-radius:9px;background:#fff;box-shadow:0 12px 30px #26312124;pointer-events:none;transform:translate(-50%,-50%)}
+.chart-tooltip{position:absolute;z-index:4;width:218px;padding:12px 13px;border:1px solid #d9ded4;border-radius:9px;background:#fff;box-shadow:0 12px 30px #26312124;pointer-events:none}
+.chart-tooltip.place-left{transform:translate(calc(-100% - 16px),-50%)}
+.chart-tooltip.place-right{transform:translate(16px,-50%)}
 .chart-tooltip time{display:block;border-bottom:1px solid #e8ebe5;margin-bottom:8px;padding-bottom:8px;color:#4f584b;font-size:10px;font-weight:700}
 .chart-tooltip div{display:flex;justify-content:space-between;gap:15px;margin-top:6px;font-size:10px}
 .chart-tooltip div span{color:#6a7465}
