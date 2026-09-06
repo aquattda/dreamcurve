@@ -42,7 +42,7 @@ async function collect() {
     state.forecasts=[];
     state.histories={};
     for(const m of state.markets){
-      await store.saveMarket(m);await store.snapshot(m,{at:m.updatedAt,spot:m.spot,probability:midpoint(m)});
+      await store.saveMarket(m);await store.snapshot(m,{at:m.updatedAt,spot:m.spot,probability:midpoint(m),yesPrice:m.yesAsks[0]?.price??null,noPrice:m.noAsks[0]?.price??null});
       const history=await store.history(m.id); state.histories[m.id]=history;
       const forecasts=generateForecasts(m,history);state.forecasts.push(...forecasts);await store.canonical(m,forecasts);
     }
