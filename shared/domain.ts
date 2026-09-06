@@ -10,7 +10,13 @@ export type Market = {
   priceDecimals: number; collateralDecimals: number; tick: string; lot: string;
   collateral: string; yesId: string; noId: string;
 };
-export type Snapshot = { at: number; spot: number | null; probability: number | null };
+export type Snapshot = {
+  at: number;
+  spot: number | null;
+  probability: number | null;
+  yesPrice?: number | null;
+  noPrice?: number | null;
+};
 export type Forecast = {
   id: string; marketId: string; agentId: AgentId; at: number; probabilityYes: number;
   action: 'BUY_YES' | 'BUY_NO' | 'NO_TRADE'; confidence: 'Low' | 'Medium';
