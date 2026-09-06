@@ -42,3 +42,27 @@
 .book-tops button small{color:#7a8376;font-size:8px}
 
 @media(max-width:760px){.chart-card{padding:14px}.chart-head{align-items:flex-start;gap:12px}.chart-head>span:last-child{white-space:nowrap}.timeframe-bar{justify-content:flex-start;overflow-x:auto;padding-bottom:3px}.timeframe-bar button{min-width:35px;padding-left:6px;padding-right:6px}.chart-tooltip{width:190px;padding:10px}.interactive-chart .empty-chart{height:185px}}
+
+/* Agent cards: keep analysis readable at normal desktop zoom. */
+.arena-heading{margin-top:54px;margin-bottom:23px}
+.arena-heading .eyebrow{font-size:11px;letter-spacing:2px}
+.arena-heading h2{font-size:32px;letter-spacing:-1.2px;margin-top:9px}
+.agent-grid{gap:14px}
+.arena-agent{display:flex;min-height:370px;flex-direction:column;padding:22px;border-radius:13px}
+.arena-agent .agent-avatar{width:44px;height:44px;font-size:14px}
+.arena-agent .agent-avatar>span{width:17px;height:17px;font-size:9px}
+.arena-agent-head{gap:11px}
+.arena-agent-head strong{font-size:14px;line-height:1.25}
+.arena-agent-head span{font-size:10px;line-height:1.35}
+.confidence{padding:5px 8px;font-size:9px!important}
+.forecast-value{margin:27px 0 15px}
+.forecast-value>span{font-size:11px}
+.forecast-value strong{font-size:39px;line-height:1.05;letter-spacing:-1.5px}
+.forecast-value small{margin-bottom:6px;padding:4px 6px;font-size:9px}
+.signal-pill{padding:9px 10px;font-size:9px;line-height:1.35;letter-spacing:.55px}
+.arena-agent ul{min-height:112px;margin:15px 0 20px;padding-left:17px}
+.arena-agent li{margin:9px 0;font-size:10.5px;line-height:1.5}
+.agent-button{min-height:45px;margin-top:auto;font-size:12px}
+
+@media(max-width:1280px) and (min-width:761px){.agent-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.arena-agent{min-height:345px}}
+@media(max-width:760px){.arena-heading{align-items:flex-start;margin-top:48px}.arena-heading h2{font-size:30px}.arena-agent{min-height:0;padding:20px}.arena-agent ul{min-height:0}.agent-button{min-height:46px}}
