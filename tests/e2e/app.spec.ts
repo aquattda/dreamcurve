@@ -54,3 +54,27 @@ test('methodology states the model and proof limitations', async ({ page }) => {
   await expect(page.getByText(/not an on-chain timestamp commitment/)).toBeVisible();
   await expect(page.getByText(/does not learn weights or invoke an LLM/)).toBeVisible();
 });
+
+test('an upstream timeout is not presented as an empty live market board', async ({ page }) => {
+  await page.route('**/api/arena?mode=live', route => route.fulfill({ json: {
+    mode: 'live', status: 'degraded', message: 'DreamDEX market data did not respond in time. Retrying automatically.',
+    issue: 'INDEXER_TIMEOUT', retryable: true, updatedAt: 0, lastSuccessfulAt: null, retryAt: Date.now() + 5_000,
+    markets: [], forecasts: [], histories: {}, scores: [], proofs: [],
+  }}));
+  await page.goto('/app');
+  await expect(page.getByRole('heading', { name: 'Live market data is temporarily unavailable' })).toBeVisible();
+  await expect(page.getByText('No live snapshot has been received yet.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Retry live data/ })).toBeEnabled();
+  await expect(page.getByRole('heading', { name: 'No active BTC or ETH windows' })).toHaveCount(0);
+});
+
+test('a successful empty discovery shows the genuine no-active-windows state', async ({ page }) => {
+  await page.route('**/api/arena?mode=live', route => route.fulfill({ json: {
+    mode: 'live', status: 'healthy', message: 'Connected, but no active BTC/ETH contracts were found.',
+    issue: null, retryable: false, updatedAt: Date.now(), lastSuccessfulAt: Date.now(), retryAt: null,
+    markets: [], forecasts: [], histories: {}, scores: [], proofs: [],
+  }}));
+  await page.goto('/app');
+  await expect(page.getByRole('heading', { name: 'No active BTC or ETH windows' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Live market data is temporarily unavailable' })).toHaveCount(0);
+});
