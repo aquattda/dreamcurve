@@ -33,5 +33,5 @@ export function demoState(now = Date.now()): ArenaState {
     return { marketId: `illustration-${Math.floor(i / 4)}`, title: `${i % 2 ? 'ETH' : 'BTC'} · illustrated resolved window`, at: now - (Math.floor(i / 4) + 1) * 900_000, outcome, agentId: agent.id, probability, brier: brier(probability, outcome), pnl: paperPnl(f, outcome), digest: 'synthetic-example-not-chain-proof' };
   });
   const scores = AGENTS.map(a => { const rows = proofs.filter(p => p.agentId === a.id); return { agentId: a.id, count: rows.length, brier: rows.reduce((s, r) => s + r.brier, 0) / rows.length, hitRate: rows.filter(r => Number(r.probability >= 0.5) === r.outcome).length / rows.length, paperPnl: rows.reduce((s, r) => s + r.pnl, 0), traded: rows.length }; });
-  return { mode: 'demo', status: 'healthy', message: 'Illustrative data. Predictions, prices and scores are synthetic. Wallet trading is disabled.', updatedAt: now, markets, forecasts, histories, scores, proofs };
+  return { mode: 'demo', status: 'healthy', message: 'Illustrative data. Predictions, prices and scores are synthetic. Wallet trading is disabled.', issue: null, retryable: false, updatedAt: now, lastSuccessfulAt: now, retryAt: null, markets, forecasts, histories, scores, proofs };
 }
