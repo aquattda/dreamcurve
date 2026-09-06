@@ -25,7 +25,22 @@ export type Forecast = {
 };
 export type ScoreRow = { agentId: AgentId; count: number; brier: number | null; hitRate: number | null; paperPnl: number; traded: number };
 export type Proof = { marketId: string; title: string; at: number; outcome: number; agentId: AgentId; probability: number; brier: number; pnl: number; digest: string };
-export type ArenaState = { mode: Mode; status: 'healthy' | 'degraded' | 'connecting'; message: string; updatedAt: number; markets: Market[]; forecasts: Forecast[]; histories: Record<string, Snapshot[]>; scores: ScoreRow[]; proofs: Proof[] };
+export type DataIssue = 'INDEXER_TIMEOUT' | 'INDEXER_ERROR' | 'RPC_ERROR' | 'MARKET_READ_FAILED' | 'COLLECTOR_DISABLED' | 'SERVICE_ERROR' | null;
+export type ArenaState = {
+  mode: Mode;
+  status: 'healthy' | 'degraded' | 'connecting';
+  message: string;
+  issue: DataIssue;
+  retryable: boolean;
+  updatedAt: number;
+  lastSuccessfulAt: number | null;
+  retryAt: number | null;
+  markets: Market[];
+  forecasts: Forecast[];
+  histories: Record<string, Snapshot[]>;
+  scores: ScoreRow[];
+  proofs: Proof[];
+};
 export const AGENTS: { id: AgentId; name: string; role: string; initial: string; description: string; color: string }[] = [
   { id: 'probability', name: 'Atlas', role: 'Probability', initial: 'A', color: 'lime', description: 'Distance to strike, volatility and time. A measured view of what comes next.' },
   { id: 'momentum', name: 'Flux', role: 'Momentum', initial: 'F', color: 'violet', description: 'Follows short-term price changes and looks for a move with staying power.' },
