@@ -9,6 +9,14 @@ export async function connectWallet() {
   return (await import('./wallet')).connectWallet();
 }
 
+export async function loadTestUsdcBalance(account: Address) {
+  return (await import('./wallet')).loadTestUsdcBalance(account);
+}
+
+export async function claimTestUsdc(account: Address) {
+  return (await import('./wallet')).claimTestUsdc(account);
+}
+
 export async function placeStake(
   market: Market,
   side: Side,
