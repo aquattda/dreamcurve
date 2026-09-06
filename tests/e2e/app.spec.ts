@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { demoState } from '../../shared/demo';
 
 test('landing page leads into a clearly labelled example arena', async ({ page }) => {
   await page.goto('/');
@@ -31,6 +32,7 @@ test('illustrative markets cannot create wallet trades', async ({ page }) => {
 });
 
 test('probability chart exposes timeframes, exact hover data, and contract prices in cents', async ({ page }) => {
+  await page.route('**/api/arena?mode=demo', route => route.fulfill({ json: demoState() }));
   await page.goto('/app?mode=demo');
   await expect(page.getByText('Implied YES probability')).toBeVisible();
   await expect(page.getByText('Mid price')).toBeVisible();
@@ -46,6 +48,14 @@ test('probability chart exposes timeframes, exact hover data, and contract price
   await expect(tooltip).toContainText('YES price');
   await expect(tooltip).toContainText('NO price');
   await expect(tooltip).toContainText('¢');
+
+  const chart = page.locator('.prob-chart');
+  const bounds = await chart.boundingBox();
+  expect(bounds).not.toBeNull();
+  await chart.hover({ position: { x: bounds!.width * 0.2, y: bounds!.height * 0.5 } });
+  await expect(tooltip).toHaveClass(/place-right/);
+  await chart.hover({ position: { x: bounds!.width * 0.8, y: bounds!.height * 0.5 } });
+  await expect(tooltip).toHaveClass(/place-left/);
 });
 
 test('methodology states the model and proof limitations', async ({ page }) => {
