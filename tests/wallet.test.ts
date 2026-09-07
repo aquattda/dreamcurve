@@ -9,7 +9,7 @@ const mocks=vi.hoisted(()=>{
   const getBinaryOrderBook=vi.fn().mockResolvedValue({yesBids:[],yesAsks:[],noBids:[],noAsks:[]});
   const getBinaryBookParams=vi.fn().mockResolvedValue({tickSize:1_000n,minQuantity:1_000_000n,lotSize:1_000_000n});
   const placeOrder=vi.fn().mockResolvedValue({hash:'0xabc',receipt:{status:'success'},fills:[],orderId:null});
-  const createTrader=vi.fn(()=>({placeOrder}));
+  const createTrader=vi.fn((_config:unknown)=>({placeOrder}));
   const quoteBinaryStakeOverBook=vi.fn(()=>({side:'BUY_YES',yesPrice:510_000n,limitPrice:510_000n,quantity:19_000_000n,escrow:9_690_000n}));
   return {pool,onchain,getMarketOnchain,getBinaryOrderBook,getBinaryBookParams,placeOrder,createTrader,quoteBinaryStakeOverBook};
 });
@@ -28,6 +28,7 @@ vi.mock('@somnia-chain/markets-sdk',()=>({
 }));
 
 import { placeStake } from '../src/wallet';
+import { readJournal } from '../src/portfolio/journal';
 
 const account='0x2b270B135667f38bB58Fc9376F29c95173641D31' as Address;
 const market:Market={
@@ -55,6 +56,20 @@ describe('wallet trade path',()=>{
     expect(mocks.quoteBinaryStakeOverBook).toHaveBeenCalledOnce();
     expect(quoted).toHaveBeenCalledWith({shares:'19',maxCost:'9.69',limit:'0.51'});
     expect(mocks.placeOrder).toHaveBeenCalledOnce();
+    expect(mocks.createTrader.mock.calls[0]).toBeDefined();
+    // SDK 0.29's receipt waiter requires a transport with subscribe(newHeads).
+    const config=mocks.createTrader.mock.calls[0][0] as unknown as {publicClient:{transport:{type:string;subscribe:unknown}}};
+    expect(config.publicClient.transport.type).toBe('webSocket');
+    expect(typeof config.publicClient.transport.subscribe).toBe('function');
     expect(result.hash).toBe('0xabc');
+  });
+
+  it('stores actual receipt fills and the real hash, never the indicative quote',async()=>{
+    const hash=`0x${'cd'.repeat(32)}`;
+    mocks.placeOrder.mockResolvedValueOnce({hash,receipt:{status:'success'},fills:[{quantityFilled:20_000_000n,fillPrice:250_000n,takerOrderId:456n,makerOrderId:123n,takerRemainingQuantity:0n,makerRemainingQuantity:0n}],orderId:456n});
+    await placeStake({...market,expiry:Date.now()+3_600_000},'YES','10',account);
+    const row=readJournal(account).find(r=>r.txHash===hash);
+    expect(row).toMatchObject({kind:'Trades',status:'Confirmed',shares:20,price:.25,total:5,orderId:'456',source:'Wallet receipt'});
+    expect(row?.timestamp).toBeNull(); // Missing block time is not replaced by an invented execution time.
   });
 });
