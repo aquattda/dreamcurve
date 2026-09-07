@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { chartHistoryQuery, HISTORY_RETENTION_MS } from './chart-history';
 import { AGENTS, brier, paperPnl, type Market, type Forecast, type Proof, type ScoreRow, type Snapshot } from '../shared/domain';
 
 export function createStore(path: string) {
@@ -19,6 +20,10 @@ export function createStore(path: string) {
     saveMarket(m: Market) { db.prepare('INSERT INTO markets VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(m.id, JSON.stringify(m)); },
     snapshot(m: Market, s: Snapshot) { db.prepare('INSERT OR IGNORE INTO snapshots VALUES (?,?,?)').run(m.id,s.at,JSON.stringify(s)); },
     history(id: string): Snapshot[] { return (db.prepare('SELECT payload FROM snapshots WHERE market_id=? ORDER BY at DESC LIMIT 180').all(id) as {payload:string}[]).reverse().map(r=>JSON.parse(r.payload)); },
+    chartHistory(id: string, now = Date.now()): Snapshot[] {
+      return (db.prepare(chartHistoryQuery('sqlite')).all(id, now - HISTORY_RETENTION_MS, now) as {payload:string}[])
+        .map(row => JSON.parse(row.payload) as Snapshot);
+    },
     canonical(m: Market, forecasts: Forecast[], now = Date.now()) {
       const window = Math.min(60_000, m.interval * 200);
       if (m.source !== 'live' || m.expiry <= now || m.expiry - now > window || m.status !== 'Trading' || now - m.updatedAt >= 15_000) return;
@@ -36,7 +41,7 @@ export function createStore(path: string) {
       const rows = db.prepare('SELECT f.payload,s.outcome FROM forecasts f JOIN settlements s ON f.market_id=s.market_id').all() as {payload:string;outcome:number}[];
       return AGENTS.map(a=>{const fs=rows.map(r=>({f:JSON.parse(r.payload) as Forecast,outcome:r.outcome})).filter(r=>r.f.agentId===a.id); return {agentId:a.id,count:fs.length,brier:fs.length?fs.reduce((s,r)=>s+brier(r.f.probabilityYes,r.outcome),0)/fs.length:null,hitRate:fs.length?fs.filter(r=>Number(r.f.probabilityYes>=.5)===r.outcome).length/fs.length:null,paperPnl:fs.reduce((s,r)=>s+paperPnl(r.f,r.outcome),0),traded:fs.filter(r=>r.f.action!=='NO_TRADE').length};});
     },
-    prune() { db.prepare('DELETE FROM snapshots WHERE at<?').run(Date.now()-7*86_400_000); },
+    prune() { db.prepare('DELETE FROM snapshots WHERE at<?').run(Date.now()-HISTORY_RETENTION_MS); },
     close() { db.close(); },
   };
 }
