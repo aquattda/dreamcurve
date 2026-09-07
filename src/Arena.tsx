@@ -78,7 +78,7 @@ function ArenaHome({state,onRetry,retrying}:{state:ArenaState;onRetry:()=>void;r
         <div className="market-title-row"><div><span className="eyebrow">{market.asset} · {Math.round(market.interval/60)} MINUTE WINDOW</span><h1>{market.title}</h1><p>{market.strike?`Strike ${money.format(market.strike)} · Spot ${market.spot?money.format(market.spot):'unavailable'}`:'Waiting for the opening reference price'}</p></div><div className="market-big-odds"><span>Market says</span><strong>{pct(midpoint(market))}</strong><small>YES</small></div></div>
         <div className="chart-card">
           <div className="chart-head"><span>Implied YES probability <small>Mid price</small></span><span><span className="status-dot"/> {market.source==='live'?'On-chain order book':'Illustrative series'}</span></div>
-          <ProbabilityChart history={state.histories[market.id]||[]}/>
+          <ProbabilityChart key={market.id} history={state.histories[market.id]||[]}/>
           <div className="book-tops">
             <button onClick={()=>setTrade('YES')} disabled={!allowTrade}><span>Buy YES<small>Contract price</small></span><strong>{cents(market.yesAsks[0]?.price)}</strong></button>
             <button onClick={()=>setTrade('NO')} disabled={!allowTrade}><span>Buy NO<small>Contract price</small></span><strong>{cents(market.noAsks[0]?.price)}</strong></button>
