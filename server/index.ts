@@ -77,7 +77,8 @@ async function collect(force = false) {
     state.histories=Object.fromEntries(Object.entries(state.histories).filter(([id])=>retainedIds.has(id)));
     for(const m of freshMarkets){
       await store.saveMarket(m);await store.snapshot(m,{at:m.updatedAt,spot:m.spot,probability:midpoint(m),yesPrice:m.yesAsks[0]?.price??null,noPrice:m.noAsks[0]?.price??null});
-      const history=await store.history(m.id); state.histories[m.id]=history;
+      const [history, chartHistory] = await Promise.all([store.history(m.id), store.chartHistory(m.id)]);
+      state.histories[m.id] = chartHistory;
       const forecasts=generateForecasts(m,history);state.forecasts.push(...forecasts);await store.canonical(m,forecasts);
     }
     for(const pending of (await store.pending()).filter(p=>p.expiry<Date.now()).slice(0,8)){
