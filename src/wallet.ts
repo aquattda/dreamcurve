@@ -1,4 +1,4 @@
-import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED, ORDER_TYPE, type Portfolio } from '@somnia-chain/markets-sdk';
+import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED, ORDER_TYPE, quoteBinaryStakeOverBook, type Portfolio } from '@somnia-chain/markets-sdk';
 import { somniaShannon } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, createWalletClient, custom, erc20Abi, http, type Address, type EIP1193Provider, formatUnits } from 'viem';
 import type { Market, Side } from '../shared/domain';
@@ -62,19 +62,21 @@ export async function placeStake(m:Market,side:Side,stakeText:string,account:Add
   if(onchain.status!==1)throw new Error('This market is no longer trading.');
   const now=Date.now();const expiry=Number(onchain.expiry)*1000;
   if(expiry-now<=Math.min(60_000,Math.max(10_000,m.interval*100)))throw new Error('Too close to expiry to submit safely.');
-  const watch=await sdk.client.watchMarket(onchain.pool);
-  try{
-    const stake=decimalRaw(stakeText,onchain.decimals);
-    const quote=await sdk.client.quoteBinaryStake({marketId:m.id,side:`BUY_${side}` as 'BUY_YES'|'BUY_NO',stake,slippageBps:200n,slippageMinTicks:2n});
-    if(!quote)throw new Error('No fillable quote for this amount. Try another market or amount.');
-    onQuoted?.({shares:formatUnits(quote.quantity,onchain.decimals),maxCost:formatUnits(quote.escrow,onchain.decimals),limit:formatUnits(quote.limitPrice,onchain.decimals)});
-    const latest=await sdk.client.getMarketOnchain(m.id as `0x${string}`);if(latest.status!==1)throw new Error('Market locked before submission.');
-    const trader=sdk.client.createTrader({walletClient,publicClient});
-    const expiresMs=Math.min(expiry-1000,Date.now()+30_000);if(expiresMs<=Date.now())throw new Error('There is no safe order lifetime remaining.');
-    const result=await trader.placeOrder({pool:onchain.pool,side:`BUY_${side}` as 'BUY_YES'|'BUY_NO',price:quote.yesPrice,quantity:quote.quantity,orderType:ORDER_TYPE.MARKET,expireTimestampNs:BigInt(Math.floor(expiresMs))*1_000_000n,autoApprove:true});
-    if(result.receipt.status!=='success')throw new Error('The transaction was mined but reverted.');
-    return {hash:result.hash,fills:result.fills.length,restingOrderId:result.orderId?.toString()||null};
-  }finally{watch.stop();}
+  const stake=decimalRaw(stakeText,onchain.decimals);
+  const [book,grid]=await Promise.all([
+    sdk.client.getBinaryOrderBook(onchain.pool,{depth:10,decimals:onchain.decimals}),
+    sdk.client.getBinaryBookParams(onchain.pool),
+  ]);
+  const orderSide=`BUY_${side}` as 'BUY_YES'|'BUY_NO';
+  const quote=quoteBinaryStakeOverBook(book,orderSide,stake,10n**BigInt(onchain.decimals),{...grid,slippageBps:200n,slippageMinTicks:2n});
+  if(!quote)throw new Error('No fillable quote for this amount. Try another market or amount.');
+  onQuoted?.({shares:formatUnits(quote.quantity,onchain.decimals),maxCost:formatUnits(quote.escrow,onchain.decimals),limit:formatUnits(quote.limitPrice,onchain.decimals)});
+  const latest=await sdk.client.getMarketOnchain(m.id as `0x${string}`);if(latest.status!==1)throw new Error('Market locked before submission.');
+  const trader=sdk.client.createTrader({walletClient,publicClient});
+  const expiresMs=Math.min(expiry-1000,Date.now()+30_000);if(expiresMs<=Date.now())throw new Error('There is no safe order lifetime remaining.');
+  const result=await trader.placeOrder({pool:onchain.pool,side:orderSide,price:quote.yesPrice,quantity:quote.quantity,orderType:ORDER_TYPE.MARKET,expireTimestampNs:BigInt(Math.floor(expiresMs))*1_000_000n,autoApprove:true});
+  if(result.receipt.status!=='success')throw new Error('The transaction was mined but reverted.');
+  return {hash:result.hash,fills:result.fills.length,restingOrderId:result.orderId?.toString()||null};
 }
 export async function loadPortfolio(account:Address):Promise<Portfolio>{const {sdk}=sdkFor(account);return sdk.client.getPortfolio(account,{ordersLimit:50,tradesLimit:50});}
 export async function cancelOrder(pool:string,orderId:string,account:Address){const {sdk,walletClient}=sdkFor(account);const trader=sdk.client.createTrader({walletClient,publicClient});const result=await trader.cancelOrder({pool:pool as Address,orderId});if(result.receipt.status!=='success')throw new Error('Cancel transaction reverted.');return result.hash;}
