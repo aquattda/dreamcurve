@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import pg from 'pg';
+import { chartHistoryQuery, HISTORY_RETENTION_MS } from './chart-history';
 import { AGENTS, brier, paperPnl, type Forecast, type Market, type Proof, type ScoreRow, type Snapshot } from '../shared/domain';
 
 const { Pool } = pg;
@@ -71,6 +72,10 @@ export async function createPostgresStore(databaseUrl: string) {
       const result = await pool.query<{payload: Snapshot}>('SELECT payload FROM snapshots WHERE market_id=$1 ORDER BY at DESC LIMIT 180', [id]);
       return result.rows.reverse().map(row => json<Snapshot>(row.payload));
     },
+    async chartHistory(id: string, now = Date.now()): Promise<Snapshot[]> {
+      const result = await pool.query<{payload: Snapshot}>(chartHistoryQuery('postgres'), [id, now - HISTORY_RETENTION_MS, now]);
+      return result.rows.map(row => json<Snapshot>(row.payload));
+    },
     async canonical(m: Market, forecasts: Forecast[], now = Date.now()) {
       const window = Math.min(60_000, m.interval * 200);
       if (m.source !== 'live' || m.expiry <= now || m.expiry - now > window || m.status !== 'Trading' || now - m.updatedAt >= 15_000) return;
@@ -107,7 +112,7 @@ export async function createPostgresStore(databaseUrl: string) {
       });
     },
     async prune() {
-      await pool.query('DELETE FROM snapshots WHERE at<$1', [Date.now() - 7 * 86_400_000]);
+      await pool.query('DELETE FROM snapshots WHERE at<$1', [Date.now() - HISTORY_RETENTION_MS]);
     },
     async close() {
       await pool.end();
