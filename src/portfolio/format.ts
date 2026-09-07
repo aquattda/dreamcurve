@@ -1,0 +1,12 @@
+export const EXPLORER_URL = 'https://shannon-explorer.somnia.network';
+export const NETWORK_NAME = 'Somnia Shannon Testnet';
+export const isTxHash = (value: unknown): value is `0x${string}` => typeof value === 'string' && /^0x[\da-f]{64}$/i.test(value);
+export const getExplorerTxUrl = (hash: string) => isTxHash(hash) ? `${EXPLORER_URL}/tx/${hash}` : undefined;
+export const getExplorerAddressUrl = (address: string) => /^0x[\da-f]{40}$/i.test(address) ? `${EXPLORER_URL}/address/${address}` : undefined;
+export const shortHash = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
+export const formatNumber = (value: number | null | undefined, digits = 2) => value == null || !Number.isFinite(value) ? '--' : value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+export const formatPrice = (value: number | null | undefined) => value == null ? '--' : `${formatNumber(value * 100, 1)}¢`;
+export const formatProbability = (value: number | null) => value == null ? '--' : `${formatNumber(value * 100, 1)}%`;
+export const formatMoney = (value: number | null | undefined) => value == null ? '--' : `${formatNumber(value)} tUSDC`;
+export const formatTime = (value: number | null) => value == null || !Number.isFinite(value) ? '--' : new Date(value).toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+export const marketUrl = (id: string) => `/app?market=${encodeURIComponent(id)}`;
