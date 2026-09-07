@@ -36,8 +36,9 @@ test('probability chart exposes timeframes, exact hover data, and contract price
   await page.goto('/app?mode=demo');
   await expect(page.getByText('Implied YES probability')).toBeVisible();
   await expect(page.getByText('Mid price')).toBeVisible();
-  await expect(page.getByRole('button', { name: '1H', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'ALL', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ALL', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '1H', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '5MIN', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Buy YES/ })).toContainText('¢');
   await expect(page.getByRole('button', { name: /Buy NO/ })).toContainText('¢');
 
@@ -56,6 +57,38 @@ test('probability chart exposes timeframes, exact hover data, and contract price
   await expect(tooltip).toHaveClass(/place-right/);
   await chart.hover({ position: { x: bounds!.width * 0.8, y: bounds!.height * 0.5 } });
   await expect(tooltip).toHaveClass(/place-left/);
+});
+
+test('timeframes change the plotted history, preserve latest value, and reset on market switch', async ({ page }) => {
+  const state = demoState();
+  const market = state.markets[0];
+  state.histories[market.id] = Array.from({ length: 181 }, (_, i) => ({
+    at: state.updatedAt - (180 - i) * 60_000, spot: 100, probability: 0.2 + i / 1000,
+    yesPrice: 0.4, noPrice: 0.62,
+  }));
+  await page.route('**/api/arena?mode=demo', route => route.fulfill({ json: state }));
+  await page.goto('/app?mode=demo');
+  const line = page.locator('.prob-line');
+  const allPath = await line.getAttribute('d');
+  const latest = await page.locator('.current-marker text').textContent();
+  const allTicks = await page.locator('.x-tick text').allTextContents();
+  await page.getByRole('button', { name: '1H', exact: true }).click();
+  await expect(page.getByRole('button', { name: '1H', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('Showing 61 of 181 chart points')).toBeVisible();
+  expect(await line.getAttribute('d')).not.toBe(allPath);
+  expect(await page.locator('.x-tick text').allTextContents()).not.toEqual(allTicks);
+  await expect(page.locator('.current-marker text')).toHaveText(latest!);
+  await page.getByRole('button', { name: 'ALL', exact: true }).click();
+  await expect(line).toHaveAttribute('d', allPath!);
+  await page.getByRole('button', { name: '1H', exact: true }).click();
+  await page.locator('.market-row').nth(1).click();
+  await expect(page.getByRole('button', { name: 'ALL', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '1H', exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: '5MIN', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '5MIN', exact: true }).click();
+  await expect(page.getByText('Showing 61 of 80 chart points')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test('methodology states the model and proof limitations', async ({ page }) => {
