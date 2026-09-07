@@ -1,6 +1,7 @@
 import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { Activity } from 'lucide-react';
 import type { Snapshot } from '../shared/domain';
+import { historyDuration, prepareHistory, selectChartRange, type Timeframe } from './chart-history';
 
 const WIDTH = 760;
 const HEIGHT = 300;
@@ -8,52 +9,39 @@ const PLOT = { top: 18, right: 20, bottom: 42, left: 52 };
 const PLOT_WIDTH = WIDTH - PLOT.left - PLOT.right;
 const PLOT_HEIGHT = HEIGHT - PLOT.top - PLOT.bottom;
 const Y_TICKS = [1, 0.75, 0.5, 0.25, 0];
-const TIMEFRAMES = [
-  { label: '1H', duration: 60 * 60_000 },
-  { label: '6H', duration: 6 * 60 * 60_000 },
-  { label: '1D', duration: 24 * 60 * 60_000 },
-  { label: '1W', duration: 7 * 24 * 60 * 60_000 },
-  { label: '1M', duration: 30 * 24 * 60 * 60_000 },
-  { label: 'ALL', duration: Infinity },
-] as const;
-
-type Timeframe = (typeof TIMEFRAMES)[number]['label'];
 type ChartPoint = Snapshot & { probability: number; x: number; y: number };
 
 const tooltipTime = new Intl.DateTimeFormat('en-US', {
   month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 });
 const shortTime = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+const preciseTime = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit' });
 const probability = (value: number) => `${(value * 100).toFixed(1)}%`;
 const contractPrice = (value: number | null | undefined) => value == null ? '—' : `${(value * 100).toFixed(1)}¢`;
 
 export function ProbabilityChart({ history }: { history: Snapshot[] }) {
-  const [timeframe, setTimeframe] = useState<Timeframe>('1H');
+  const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const gradientId = `probfill-${useId().replace(/:/g, '')}`;
   const validHistory = useMemo(
-    () => history.filter((point): point is Snapshot & { probability: number } => point.probability !== null),
+    () => prepareHistory(history),
     [history],
   );
-  const selectedRange = TIMEFRAMES.find(option => option.label === timeframe)!;
-  const latestAt = validHistory.at(-1)?.at ?? 0;
-  const filteredHistory = selectedRange.duration === Infinity
-    ? validHistory
-    : validHistory.filter(point => point.at >= latestAt - selectedRange.duration);
+  const range = useMemo(() => selectChartRange(validHistory, timeframe), [validHistory, timeframe]);
 
   const points = useMemo<ChartPoint[]>(() => {
-    if (filteredHistory.length < 2) return [];
-    const firstAt = filteredHistory[0].at;
-    const lastAt = filteredHistory.at(-1)!.at;
+    if (range.points.length < 2) return [];
+    const firstAt = range.start;
+    const lastAt = range.end;
     const span = Math.max(1, lastAt - firstAt);
-    return filteredHistory.map(point => ({
+    return range.points.map(point => ({
       ...point,
       probability: point.probability,
       x: PLOT.left + ((point.at - firstAt) / span) * PLOT_WIDTH,
       y: PLOT.top + (1 - point.probability) * PLOT_HEIGHT,
     }));
-  }, [filteredHistory]);
+  }, [range]);
 
   function selectNearest(clientX: number, currentTarget: SVGSVGElement) {
     if (!points.length) return;
@@ -80,8 +68,8 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
     else setHoverIndex(index => Math.min(points.length - 1, Math.max(0, (index ?? points.length - 1) + (event.key === 'ArrowLeft' ? -1 : 1))));
   }
 
-  const firstAt = points[0]?.at ?? 0;
-  const lastAt = points.at(-1)?.at ?? 0;
+  const firstAt = range.start;
+  const lastAt = range.end;
   const timeSpan = lastAt - firstAt;
   const xTicks = points.length ? Array.from({ length: 5 }, (_, index) => ({
     x: PLOT.left + (index / 4) * PLOT_WIDTH,
@@ -94,12 +82,17 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
   const tooltipSide = selected && selected.x > WIDTH / 2 ? 'place-left' : 'place-right';
 
   return <div className="interactive-chart">
+    <div className="chart-history-summary">
+      <span>Available history: {historyDuration(range.end - (validHistory[0]?.at ?? range.end))}</span>
+      <span>Showing {range.points.length} of {validHistory.length} chart points</span>
+    </div>
     <div className="timeframe-bar" aria-label="Chart timeframe">
-      {TIMEFRAMES.map(option => <button
+      {range.options.map(option => <button
         type="button"
         key={option.label}
-        className={timeframe === option.label ? 'active' : ''}
-        aria-pressed={timeframe === option.label}
+        className={range.selected.label === option.label ? 'active' : ''}
+        aria-pressed={range.selected.label === option.label}
+        title={option.label === 'ALL' ? 'All available recorded history' : `Last ${historyDuration(option.duration)} of recorded history`}
         onClick={() => { setTimeframe(option.label); setHoverIndex(null); }}
       >{option.label}</button>)}
     </div>
@@ -128,7 +121,7 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
         {xTicks.map((tick, index) => <g key={index} className="x-tick">
           <line x1={tick.x} y1={PLOT.top} x2={tick.x} y2={PLOT.top + PLOT_HEIGHT}/>
           <text x={tick.x} y={HEIGHT - 13} textAnchor={index === 0 ? 'start' : index === 4 ? 'end' : 'middle'}>
-            {(timeSpan <= 24 * 60 * 60_000 ? shortTime : shortDate).format(tick.at)}
+            {(timeSpan <= 2 * 60_000 ? preciseTime : timeSpan <= 24 * 60 * 60_000 ? shortTime : shortDate).format(tick.at)}
           </text>
         </g>)}
         <path d={`${path} L ${latest!.x} ${PLOT.top + PLOT_HEIGHT} L ${points[0].x} ${PLOT.top + PLOT_HEIGHT} Z`} fill={`url(#${gradientId})`}/>
@@ -157,5 +150,6 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
         <div><span>NO price</span><strong>{contractPrice(selected.noPrice)}</strong></div>
       </div> : null}
     </div>}
+    <p className="chart-history-note">Ranges appear as history grows. ALL shows this contract’s recorded history (up to 7 days); older points may be sampled.</p>
   </div>;
 }
