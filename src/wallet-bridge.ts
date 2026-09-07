@@ -31,10 +31,14 @@ export async function loadPortfolio(account: Address) {
   return (await import('./wallet')).loadPortfolio(account);
 }
 
-export async function cancelOrder(pool: string, orderId: string, account: Address) {
-  return (await import('./wallet')).cancelOrder(pool, orderId, account);
+export async function cancelOrder(pool: string, orderId: string, account: Address, onProgress?: (message: string, hash?: string) => void) {
+  return (await import('./wallet')).cancelOrder(pool, orderId, account, onProgress);
 }
 
-export async function redeemAll(account: Address) {
-  return (await import('./wallet')).redeemAll(account);
+export async function redeemAll(account: Address, onProgress?: (message: string, hash?: string) => void) {
+  return (await import('./wallet')).redeemAll(account, onProgress);
+}
+
+export async function fetchPortfolioData(account: Address) {
+  return (await import('./portfolio/data')).fetchPortfolioData(account);
 }
