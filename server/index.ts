@@ -13,6 +13,7 @@ import { createPostgresStore } from './store-postgres';
 import { exchange, readMarket, publicConfig, chainClient } from './protocol';
 import { publicArenaState } from '../shared/data-quality';
 import { readWithDeadline } from './read-deadline';
+import { proxyIndexerRequest } from './indexer-proxy';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const store = process.env.DATABASE_URL
@@ -110,6 +111,17 @@ app.use((_req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.
 app.get('/api/health',(_req,res)=>{const current=publicArenaState(state);res.setHeader('Cache-Control','no-store');res.json({status:current.status,chainId:50312,mode:'testnet',updatedAt:current.updatedAt,lastSuccessfulAt:current.lastSuccessfulAt,retryAt:current.retryAt,issue:current.issue,message:current.message});});
 app.get('/api/ready',(_req,res)=>{const current=publicArenaState(state);res.setHeader('Cache-Control','no-store');res.status(current.status==='healthy'?200:503).json({ready:current.status==='healthy',status:current.status,issue:current.issue,lastSuccessfulAt:current.lastSuccessfulAt});});
 app.get('/api/config',(_req,res)=>res.json(publicConfig));
+app.post('/api/indexer',async(req,res)=>{
+  res.setHeader('Cache-Control','no-store');
+  try{
+    const upstream=await proxyIndexerRequest(req.body);
+    res.status(upstream.status).type(upstream.contentType).send(upstream.body);
+  }catch(error){
+    const message=error instanceof Error?error.message:'Indexer proxy failed.';
+    const invalid=/required|must be|too large|read-only/.test(message);
+    res.status(invalid?400:502).json({errors:[{message:invalid?message:'DreamDEX indexer is temporarily unavailable.'}]});
+  }
+});
 app.get('/api/arena',(req,res)=>{res.setHeader('Cache-Control','no-store');res.json(req.query.mode==='demo'?demoState():publicArenaState(state));});
 app.post('/api/retry',async(_req,res)=>{
   if(process.env.COLLECTOR_ENABLED==='false'){res.status(503).json(state);return;}
