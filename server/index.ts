@@ -3,7 +3,7 @@ import express from 'express';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { BinaryMarket, WatchHandle } from '@somnia-chain/markets-sdk';
+import type { BinaryMarket } from '@somnia-chain/markets-sdk';
 import type { Hex } from 'viem';
 import { demoState } from '../shared/demo';
 import { generateForecasts, midpoint, type ArenaState, type DataIssue } from '../shared/domain';
@@ -11,6 +11,8 @@ import { discoverActiveMarkets, retryDelay } from './discovery';
 import { createStore } from './store';
 import { createPostgresStore } from './store-postgres';
 import { exchange, readMarket, publicConfig, chainClient } from './protocol';
+import { publicArenaState } from '../shared/data-quality';
+import { readWithDeadline } from './read-deadline';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const store = process.env.DATABASE_URL
@@ -22,9 +24,8 @@ let lastDiscover = 0;
 let consecutiveFailures = 0;
 let lastManualRetry = 0;
 let busy = false;
-const watches = new Map<string, WatchHandle>();
 const streams = new Set<express.Response>();
-function broadcast(){for(const res of streams)res.write(`data: ${JSON.stringify(state)}\n\n`);}
+function broadcast(){for(const res of streams)res.write(`data: ${JSON.stringify(publicArenaState(state))}\n\n`);}
 function errorMessage(e: unknown) { return e instanceof Error ? e.message.slice(0, 240) : 'Unknown upstream error'; }
 function classifyIssue(e: unknown): Exclude<DataIssue, null> {
   const message = errorMessage(e).toLowerCase();
@@ -57,13 +58,10 @@ async function collect(force = false) {
       let id: number;
       try{id=await chainClient.getChainId();}catch(e){throw new Error(`RPC connection failed: ${errorMessage(e)}`);}
       if(id!==50312)throw new Error('RPC network mismatch: expected Shannon 50312');
-      rows=await discoverActiveMarkets(exchange.client,process.env.DREAMDEX_VENUE_ID);
+      rows=await readWithDeadline(discoverActiveMarkets(exchange.client,process.env.DREAMDEX_VENUE_ID), 'Indexer discovery');
       lastDiscover=Date.now();
-      for(const [id,h] of watches)if(!rows.some(r=>r.marketId===id)){h.stop();watches.delete(id);}
-      // Watches warm the SDK live store. Periodic chain reads independently verify freshness.
-      for(const row of rows)if(!watches.has(row.marketId))try { const handle=await exchange.client.watchMarket(row.poolAddress); watches.set(row.marketId,handle); }catch{/* Chain reads below remain the explicit fallback. */}
     }
-    const results = await Promise.allSettled(rows.map(readMarket));
+    const results = await Promise.allSettled(rows.map(row => readWithDeadline(readMarket(row), 'Market read')));
     const now = Date.now();
     const freshMarkets=results.flatMap(r=>r.status==='fulfilled'&&r.value.expiry>now?[r.value]:[]);
     const freshIds=new Set(freshMarkets.map(m=>m.id));
@@ -71,20 +69,23 @@ async function collect(force = false) {
     // Keep last-known-good rows when a quote read fails. Their old updatedAt
     // makes blockReason() reject trading until a fresh on-chain read arrives.
     const retainedMarkets=state.markets.filter(m=>activeRowIds.has(m.id)&&m.expiry>now&&!freshIds.has(m.id));
-    state.markets=[...freshMarkets,...retainedMarkets].sort((a,b)=>a.expiry-b.expiry);
+    const nextMarkets=[...freshMarkets,...retainedMarkets].sort((a,b)=>a.expiry-b.expiry);
     const retainedIds=new Set(retainedMarkets.map(m=>m.id));
-    state.forecasts=state.forecasts.filter(f=>retainedIds.has(f.marketId));
-    state.histories=Object.fromEntries(Object.entries(state.histories).filter(([id])=>retainedIds.has(id)));
+    const nextForecasts=state.forecasts.filter(f=>retainedIds.has(f.marketId));
+    const nextHistories=Object.fromEntries(Object.entries(state.histories).filter(([id])=>retainedIds.has(id)));
     for(const m of freshMarkets){
       await store.saveMarket(m);await store.snapshot(m,{at:m.updatedAt,spot:m.spot,probability:midpoint(m),yesPrice:m.yesAsks[0]?.price??null,noPrice:m.noAsks[0]?.price??null});
       const [history, chartHistory] = await Promise.all([store.history(m.id), store.chartHistory(m.id)]);
-      state.histories[m.id] = chartHistory;
-      const forecasts=generateForecasts(m,history);state.forecasts.push(...forecasts);await store.canonical(m,forecasts);
+      nextHistories[m.id] = chartHistory;
+      const forecasts=generateForecasts(m,history);nextForecasts.push(...forecasts);await store.canonical(m,forecasts);
     }
-    for(const pending of (await store.pending()).filter(p=>p.expiry<Date.now()).slice(0,8)){
-      try { const resolved=await exchange.client.getMarketOnchain(pending.id as Hex);if(resolved.finalized&&resolved.isResolved&&!resolved.isVoided&&[0,1].includes(resolved.winningOutcome))await store.settle(pending.id,resolved.winningOutcome===0?1:0); }catch(e){console.warn('Settlement read:',errorMessage(e));}
-    }
-    state.scores=await store.scores();state.proofs=await store.proofs();
+    await Promise.all((await store.pending()).filter(p=>p.expiry<Date.now()).slice(0,8).map(async pending => {
+      try { const resolved=await readWithDeadline(exchange.client.getMarketOnchain(pending.id as Hex), 'Settlement read', 12_000);if(resolved.finalized&&resolved.isResolved&&!resolved.isVoided&&[0,1].includes(resolved.winningOutcome))await store.settle(pending.id,resolved.winningOutcome===0?1:0); }catch(e){console.warn('Settlement read:',errorMessage(e));}
+    }));
+    const [scores, proofs] = await Promise.all([store.scores(), store.proofs()]);
+    // Publish complete snapshots only. An API read during collection or a failed
+    // storage read must never see half the markets without their chart/agents.
+    Object.assign(state, { markets: nextMarkets, forecasts: nextForecasts, histories: nextHistories, scores, proofs });
     const failed=results.filter(r=>r.status==='rejected').length;
     if(failed){
       scheduleRetry('MARKET_READ_FAILED');
@@ -106,23 +107,23 @@ async function collect(force = false) {
 }
 const app=express();app.disable('x-powered-by');app.use(express.json({limit:'16kb'}));
 app.use((_req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');next();});
-app.get('/api/health',(_req,res)=>res.json({status:state.status,chainId:50312,mode:'testnet',updatedAt:state.updatedAt,lastSuccessfulAt:state.lastSuccessfulAt,retryAt:state.retryAt,issue:state.issue,message:state.message}));
-app.get('/api/ready',(_req,res)=>res.status(state.status==='healthy'?200:503).json({ready:state.status==='healthy',status:state.status,issue:state.issue,lastSuccessfulAt:state.lastSuccessfulAt}));
+app.get('/api/health',(_req,res)=>{const current=publicArenaState(state);res.setHeader('Cache-Control','no-store');res.json({status:current.status,chainId:50312,mode:'testnet',updatedAt:current.updatedAt,lastSuccessfulAt:current.lastSuccessfulAt,retryAt:current.retryAt,issue:current.issue,message:current.message});});
+app.get('/api/ready',(_req,res)=>{const current=publicArenaState(state);res.setHeader('Cache-Control','no-store');res.status(current.status==='healthy'?200:503).json({ready:current.status==='healthy',status:current.status,issue:current.issue,lastSuccessfulAt:current.lastSuccessfulAt});});
 app.get('/api/config',(_req,res)=>res.json(publicConfig));
-app.get('/api/arena',(req,res)=>{res.setHeader('Cache-Control','no-store');res.json(req.query.mode==='demo'?demoState():state);});
+app.get('/api/arena',(req,res)=>{res.setHeader('Cache-Control','no-store');res.json(req.query.mode==='demo'?demoState():publicArenaState(state));});
 app.post('/api/retry',async(_req,res)=>{
   if(process.env.COLLECTOR_ENABLED==='false'){res.status(503).json(state);return;}
   const now=Date.now();
   if(now-lastManualRetry<5_000){res.setHeader('Retry-After','5');res.status(429).json(state);return;}
   lastManualRetry=now;
   if(busy){res.status(409).json(state);return;}
-  await collect(true);res.setHeader('Cache-Control','no-store');res.json(state);
+  await collect(true);res.setHeader('Cache-Control','no-store');res.json(publicArenaState(state));
 });
 app.get('/api/proofs',async(_req,res)=>{res.setHeader('Content-Disposition','attachment; filename="dreamcurve-forecasts.json"');res.json({schema:1,network:50312,note:'Application-recorded forecasts; hashes are not on-chain commitments.',proofs:await store.proofs()});});
 app.get('/api/stream',(req,res)=>{
   if(streams.size>=100){res.status(503).json({error:'Connection limit reached; polling remains available.'});return;}
   res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache');res.setHeader('Connection','keep-alive');res.flushHeaders();
-  res.write(`data: ${JSON.stringify(state)}\n\n`);streams.add(res);const heartbeat=setInterval(()=>res.write(': heartbeat\n\n'),15_000);req.on('close',()=>{clearInterval(heartbeat);streams.delete(res);});
+  res.write(`data: ${JSON.stringify(publicArenaState(state))}\n\n`);streams.add(res);const heartbeat=setInterval(()=>res.write(': heartbeat\n\n'),15_000);req.on('close',()=>{clearInterval(heartbeat);streams.delete(res);});
 });
 app.use('/api',(_req,res)=>res.status(404).json({error:'Unknown API route'}));
 const production=process.argv.includes('--production')||process.env.NODE_ENV==='production';
@@ -130,5 +131,6 @@ if(production){app.use(express.static(path.join(root,'dist')));app.get('/{*path}
 else {const {createServer}=await import('vite');const vite=await createServer({server:{middlewareMode:true},appType:'custom'});app.use(vite.middlewares);app.use(async(req,res,next)=>{try{const template=await vite.transformIndexHtml(req.originalUrl,await readFile(path.join(root,'index.html'),'utf8'));res.status(200).type('html').send(template);}catch(e){next(e);}});}
 const host=process.env.HOST||(process.env.DYNO?'0.0.0.0':'127.0.0.1');const port=Number(process.env.PORT||8787);
 const server=app.listen(port,host,()=>{console.log(`DreamCurve ready at http://${host}:${port}`);if(process.env.COLLECTOR_ENABLED!=='false')void collect();else{scheduleRetry('COLLECTOR_DISABLED');}});
+server.on('error', error => { console.error('HTTP server failed to start:', error.message); process.exit(1); });
 const timer=setInterval(()=>{if(process.env.COLLECTOR_ENABLED!=='false')void collect();},5000);
-for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{clearInterval(timer);for(const h of watches.values())h.stop();for(const res of streams)res.end();server.close(()=>{void Promise.resolve(store.close()).finally(()=>process.exit(0));});setTimeout(()=>process.exit(0),2000).unref();});
+for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{clearInterval(timer);for(const res of streams)res.end();server.close(()=>{void Promise.resolve(store.close()).finally(()=>process.exit(0));});setTimeout(()=>process.exit(0),2000).unref();});
