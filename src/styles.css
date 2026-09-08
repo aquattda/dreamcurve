@@ -34,6 +34,7 @@
 .current-marker .marker-halo{fill:#aee96655;stroke:none}
 .current-marker rect{fill:#182016}
 .current-marker text{fill:#fff;font-size:10px;font-weight:750}
+.current-marker text{font-size:14px}
 .crosshair{pointer-events:none}
 .prob-chart .crosshair line{stroke:#54604f;stroke-dasharray:3 4;stroke-width:1}
 .prob-chart .crosshair circle{fill:#fff;stroke:#6fa82f;stroke-width:3}
@@ -50,6 +51,7 @@
 @media(max-width:760px){.chart-card{padding:14px}.chart-head{align-items:flex-start;gap:12px}.chart-head>span:last-child{white-space:nowrap}.timeframe-bar{justify-content:flex-start;overflow-x:auto;padding-bottom:3px}.timeframe-bar button{min-width:35px;padding-left:6px;padding-right:6px}.chart-tooltip{width:190px;padding:10px}.interactive-chart .empty-chart{height:185px}}
 
 /* Agent cards: keep analysis readable at normal desktop zoom. */
+@media(max-width:760px){.prob-chart text{font-size:20px}.current-marker text{font-size:20px}.chart-tooltip{position:static;width:100%;margin-top:8px}.chart-tooltip.place-left,.chart-tooltip.place-right{transform:none}.chart-tooltip time,.chart-tooltip div,.chart-tooltip div strong{font-size:12px}}
 .arena-heading{margin-top:54px;margin-bottom:23px}
 .arena-heading .eyebrow{font-size:11px;letter-spacing:2px}
 .arena-heading h2{font-size:32px;letter-spacing:-1.2px;margin-top:9px}
@@ -81,3 +83,15 @@
 .empty-actions{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
 .empty-actions .button{min-width:190px}
 @media(max-width:760px){.empty-state h1{font-size:32px;letter-spacing:-1.5px}.empty-actions{width:100%}.empty-actions .button{width:100%}}
+
+/* Keep agent cards and avatars proportional across desktop viewport sizes. */
+.app-main{max-width:1700px}
+.arena-layout{grid-template-columns:285px minmax(0,1fr)}
+.market-detail{width:100%;min-width:0;max-width:none}
+.agent-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.agent-avatar{aspect-ratio:1;flex:0 0 auto}
+.arena-agent-head,.arena-agent-head>div{min-width:0}
+.confidence{flex:0 0 auto}
+
+@media(max-width:1050px) and (min-width:761px){.arena-layout{grid-template-columns:240px minmax(0,1fr)}}
+@media(max-width:760px){.arena-layout{display:block}.agent-grid{grid-template-columns:1fr}}
