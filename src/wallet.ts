@@ -8,7 +8,9 @@ import type { Market, Side } from '../shared/domain';
 import { decimalRaw } from '../shared/domain';
 
 declare global { interface Window { ethereum?: EIP1193Provider } }
-const INDEXER='https://dev.smk.somnia.host/v1/graphql';
+// Keep browser indexer reads same-origin. The backend owns upstream DNS fallback,
+// timeout handling and read-only enforcement for this public GraphQL boundary.
+const INDEXER='/api/indexer';
 const WS='wss://api.infra.testnet.somnia.network/ws';
 const RPC='https://dream-rpc.somnia.network';
 const publicClient=createPublicClient({chain:somniaShannon,transport:http(RPC,{timeout:15_000,retryCount:1})});
