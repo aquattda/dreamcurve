@@ -88,10 +88,11 @@
 .app-main{max-width:1700px}
 .arena-layout{grid-template-columns:285px minmax(0,1fr)}
 .market-detail{width:100%;min-width:0;max-width:none}
-.agent-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.agent-grid{grid-template-columns:repeat(4,minmax(255px,1fr));overflow-x:auto;overscroll-behavior-inline:contain;scroll-snap-type:x proximity;scrollbar-width:thin}
+.arena-agent{scroll-snap-align:start}
 .agent-avatar{aspect-ratio:1;flex:0 0 auto}
 .arena-agent-head,.arena-agent-head>div{min-width:0}
 .confidence{flex:0 0 auto}
 
 @media(max-width:1050px) and (min-width:761px){.arena-layout{grid-template-columns:240px minmax(0,1fr)}}
-@media(max-width:760px){.arena-layout{display:block}.agent-grid{grid-template-columns:1fr}}
+@media(max-width:760px){.arena-layout{display:block}}
