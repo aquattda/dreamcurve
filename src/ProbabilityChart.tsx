@@ -22,7 +22,7 @@ const contractPrice = (value: number | null | undefined) => value == null ? '—
 
 export function ProbabilityChart({ history }: { history: Snapshot[] }) {
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [hoverAt, setHoverAt] = useState<number | null>(null);
   const gradientId = `probfill-${useId().replace(/:/g, '')}`;
   const validHistory = useMemo(
     () => prepareHistory(history),
@@ -53,7 +53,7 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
       const nextDistance = Math.abs(point.x - chartX);
       if (nextDistance < distance) { nearest = index; distance = nextDistance; }
     });
-    setHoverIndex(nearest);
+    setHoverAt(points[nearest].at);
   }
 
   function handlePointer(event: PointerEvent<SVGSVGElement>) {
@@ -63,9 +63,12 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
   function handleKeyboard(event: KeyboardEvent<SVGSVGElement>) {
     if (!points.length || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    if (event.key === 'Home') setHoverIndex(0);
-    else if (event.key === 'End') setHoverIndex(points.length - 1);
-    else setHoverIndex(index => Math.min(points.length - 1, Math.max(0, (index ?? points.length - 1) + (event.key === 'ArrowLeft' ? -1 : 1))));
+    if (event.key === 'Home') setHoverAt(points[0].at);
+    else if (event.key === 'End') setHoverAt(points.at(-1)!.at);
+    else setHoverAt(at => {
+      const index = points.findIndex(point => point.at === at);
+      return points[Math.min(points.length - 1, Math.max(0, (index < 0 ? points.length - 1 : index) + (event.key === 'ArrowLeft' ? -1 : 1)))].at;
+    });
   }
 
   const firstAt = range.start;
@@ -77,7 +80,7 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
   })) : [];
   const path = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
   const latest = points.at(-1);
-  const selected = hoverIndex === null ? null : points[hoverIndex];
+  const selected = hoverAt === null ? null : points.find(point => point.at === hoverAt);
   const currentLabelY = latest ? Math.min(PLOT.top + PLOT_HEIGHT - 6, Math.max(PLOT.top + 16, latest.y)) : 0;
   const tooltipSide = selected && selected.x > WIDTH / 2 ? 'place-left' : 'place-right';
 
@@ -93,7 +96,7 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
         className={range.selected.label === option.label ? 'active' : ''}
         aria-pressed={range.selected.label === option.label}
         title={option.label === 'ALL' ? 'All available recorded history' : `Last ${historyDuration(option.duration)} of recorded history`}
-        onClick={() => { setTimeframe(option.label); setHoverIndex(null); }}
+        onClick={() => { setTimeframe(option.label); setHoverAt(null); }}
       >{option.label}</button>)}
     </div>
     {points.length < 2 ? <div className="empty-chart"><Activity/><span>No probability history in this range.</span></div> : <div className="chart-stage">
@@ -105,9 +108,9 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
         tabIndex={0}
         onPointerMove={handlePointer}
         onPointerDown={handlePointer}
-        onPointerLeave={() => setHoverIndex(null)}
-        onFocus={() => setHoverIndex(index => index ?? points.length - 1)}
-        onBlur={() => setHoverIndex(null)}
+        onPointerLeave={() => setHoverAt(null)}
+        onFocus={() => setHoverAt(at => at ?? points.at(-1)!.at)}
+        onBlur={() => setHoverAt(null)}
         onKeyDown={handleKeyboard}
       >
         <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop stopColor="#b9f568" stopOpacity=".34"/><stop offset="1" stopColor="#b9f568" stopOpacity="0"/></linearGradient></defs>
@@ -129,8 +132,8 @@ export function ProbabilityChart({ history }: { history: Snapshot[] }) {
         <g className="current-marker">
           <circle cx={latest!.x} cy={latest!.y} r="8" className="marker-halo"/>
           <circle cx={latest!.x} cy={latest!.y} r="4"/>
-          <rect x={latest!.x - 70} y={currentLabelY - 14} width="62" height="27" rx="7"/>
-          <text x={latest!.x - 39} y={currentLabelY + 4} textAnchor="middle">{probability(latest!.probability)}</text>
+          <rect x={latest!.x - 98} y={currentLabelY - 16} width="90" height="32" rx="7"/>
+          <text x={latest!.x - 53} y={currentLabelY + 5} textAnchor="middle">{probability(latest!.probability)}</text>
         </g>
         {selected ? <g className="crosshair" aria-hidden="true">
           <line x1={selected.x} y1={PLOT.top} x2={selected.x} y2={PLOT.top + PLOT_HEIGHT}/>
