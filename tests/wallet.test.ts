@@ -47,6 +47,19 @@ describe('wallet trade path',()=>{
     } as unknown as EIP1193Provider}});
   });
 
+  it('rejects demo, zero stake and locked markets without sending orders',async()=>{
+    await expect(placeStake({...market,source:'demo'},'YES','10',account)).rejects.toThrow(/illustrative/);
+    await expect(placeStake(market,'YES','0',account)).rejects.toThrow(/greater than zero/);
+    mocks.getMarketOnchain.mockResolvedValueOnce({...mocks.onchain,status:2});
+    await expect(placeStake(market,'YES','10',account)).rejects.toThrow(/no longer trading/);
+    expect(mocks.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it('does not report a reverted receipt as a successful trade',async()=>{
+    mocks.placeOrder.mockResolvedValueOnce({hash:`0x${'ee'.repeat(32)}`,receipt:{status:'reverted'},fills:[],orderId:null});
+    await expect(placeStake(market,'YES','10',account)).rejects.toThrow(/reverted/);
+  });
+
   it('quotes from a one-shot on-chain book without opening a subscription',async()=>{
     const quoted=vi.fn();
     const result=await placeStake({...market,expiry:Date.now()+3_600_000},'YES','10',account,quoted);
