@@ -3,6 +3,7 @@ import { SomniaMarkets, SOMNIA_TESTNET_ADDRESSES, SOMNIA_TESTNET_PRICE_FEED, typ
 import { somniaShannon } from '@somnia-chain/markets-sdk/chains';
 import { createPublicClient, http, formatUnits } from 'viem';
 import type { Market } from '../shared/domain';
+import { referencePriceVerified } from '../shared/data-quality';
 
 export const publicConfig = {
   chainId: 50312,
@@ -30,10 +31,12 @@ export async function readMarket(row: BinaryMarket): Promise<Market> {
   ]);
   const feed = feedResult.find(f => f.asset.toUpperCase() === row.asset.toUpperCase());
   const spot = feed && Date.now() - feed.blockTimestamp * 1000 < 30_000 ? feed.price : null;
+  const unverifiedReference = row.mode === 'reference' && strikeResult !== null && !referencePriceVerified(strikeResult, spot);
   const levels = (side: typeof book.yesBids) => side.map(l => ({ price: Number(formatUnits(l.price, onchain.decimals)), size: Number(formatUnits(l.quantity, onchain.decimals)) }));
   return { id: row.marketId, title: row.question, asset: row.asset, pool: onchain.pool, venueId: row.venueId || '',
     expiry: Number(onchain.expiry) * 1000, interval: Number(row.intervalSec || Number(row.expiry) - Number(row.tradingStart)),
     status: ['Listed', 'Trading', 'Locked', 'Settling', 'Resolved', 'Voided'][onchain.status] || 'Unknown',
-    strike: strikeResult, spot, updatedAt: Date.now(), source: 'live', yesBids: levels(book.yesBids), yesAsks: levels(book.yesAsks), noBids: levels(book.noBids), noAsks: levels(book.noAsks),
+    strike: unverifiedReference ? null : strikeResult, spot, updatedAt: Date.now(), source: 'live', yesBids: levels(book.yesBids), yesAsks: levels(book.yesAsks), noBids: levels(book.noBids), noAsks: levels(book.noAsks),
+    ...(unverifiedReference ? { dataWarning: 'Opening price scale could not be verified. Trading is paused for this market.' } : {}),
     priceDecimals: onchain.decimals, collateralDecimals: onchain.decimals, tick: grid.tickSize.toString(), lot: grid.lotSize.toString(), collateral: onchain.collateral, yesId: onchain.yesId.toString(), noId: onchain.noId.toString() };
 }
