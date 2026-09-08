@@ -73,15 +73,17 @@ export async function claimTestUsdc(account:Address){
   if(result.receipt.status!=='success')throw new Error('The tUSDC faucet transaction was mined but reverted.');
   return {hash:result.hash};
 }
-export async function placeStake(m:Market,side:Side,stakeText:string,account:Address,onQuoted?:(q:{shares:string;maxCost:string;limit:string})=>void){
+export async function placeStake(m:Market,side:Side,stakeText:string,account:Address,onQuoted?:(q:{shares:string;maxCost:string;limit:string})=>void,onProgress?:TransactionProgress){
   if(m.source!=='live')throw new Error('Trading is disabled for illustrative data.');
-  const {sdk,walletClient}=sdkFor(account);
+  if(m.dataWarning)throw new Error(m.dataWarning);
+  const {sdk,walletClient}=sdkFor(account,onProgress);
   const chainId=await walletClient.getChainId();if(chainId!==50312)throw new Error('Switch your wallet to Somnia Testnet.');
   const onchain=await sdk.client.getMarketOnchain(m.id as `0x${string}`);
   if(onchain.status!==1)throw new Error('This market is no longer trading.');
   const now=Date.now();const expiry=Number(onchain.expiry)*1000;
   if(expiry-now<=Math.min(60_000,Math.max(10_000,m.interval*100)))throw new Error('Too close to expiry to submit safely.');
   const stake=decimalRaw(stakeText,onchain.decimals);
+  if(stake<=0n)throw new Error('Stake must be greater than zero.');
   const [book,grid]=await Promise.all([
     sdk.client.getBinaryOrderBook(onchain.pool,{depth:10,decimals:onchain.decimals}),
     sdk.client.getBinaryBookParams(onchain.pool),
