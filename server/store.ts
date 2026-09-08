@@ -25,6 +25,7 @@ export function createStore(path: string) {
         .map(row => JSON.parse(row.payload) as Snapshot);
     },
     canonical(m: Market, forecasts: Forecast[], now = Date.now()) {
+      if (m.dataWarning) return;
       const window = Math.min(60_000, m.interval * 200);
       if (m.source !== 'live' || m.expiry <= now || m.expiry - now > window || m.status !== 'Trading' || now - m.updatedAt >= 15_000) return;
       for (const f of forecasts) {
