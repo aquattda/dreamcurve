@@ -9,6 +9,7 @@ export type Market = {
   yesBids: Level[]; yesAsks: Level[]; noBids: Level[]; noAsks: Level[];
   priceDecimals: number; collateralDecimals: number; tick: string; lot: string;
   collateral: string; yesId: string; noId: string;
+  dataWarning?: string;
 };
 export type Snapshot = {
   at: number;
@@ -52,6 +53,7 @@ export const midpoint = (m: Market) => m.yesBids[0] && m.yesAsks[0] ? (m.yesBids
 export const isFresh = (m: Market, now = Date.now()) => now - m.updatedAt < 15_000 && now >= m.updatedAt - 5_000;
 export const headroom = (m: Market) => Math.min(60, Math.max(10, m.interval * 0.1)) * 1000;
 export function blockReason(m: Market, now = Date.now()): string | null {
+  if (m.dataWarning) return m.dataWarning;
   if (m.status !== 'Trading') return 'This market is not accepting orders.';
   if (!isFresh(m, now)) return 'Market data is stale. Wait for a fresh quote.';
   if (m.expiry - now <= headroom(m)) return 'Too close to expiry to submit safely.';
