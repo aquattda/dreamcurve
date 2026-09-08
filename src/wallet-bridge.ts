@@ -23,12 +23,9 @@ export async function placeStake(
   stake: string,
   account: Address,
   onQuoted?: (quote: QuotePreview) => void,
+  onProgress?: (message: string, hash?: string) => void,
 ) {
-  return (await import('./wallet')).placeStake(market, side, stake, account, onQuoted);
-}
-
-export async function loadPortfolio(account: Address) {
-  return (await import('./wallet')).loadPortfolio(account);
+  return (await import('./wallet')).placeStake(market, side, stake, account, onQuoted, onProgress);
 }
 
 export async function cancelOrder(pool: string, orderId: string, account: Address, onProgress?: (message: string, hash?: string) => void) {
