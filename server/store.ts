@@ -2,6 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { sqliteExecutionStore } from './execution-store';
+import { sqliteEarnStore } from './earn-store';
 import { chartHistoryQuery, HISTORY_RETENTION_MS } from './chart-history';
 import { AGENTS, brier, paperPnl, type Market, type Forecast, type Proof, type ScoreRow, type Snapshot } from '../shared/domain';
 
@@ -17,6 +19,8 @@ export function createStore(path: string) {
     CREATE TRIGGER IF NOT EXISTS forecasts_immutable BEFORE UPDATE ON forecasts BEGIN SELECT RAISE(ABORT,'Canonical forecasts are immutable'); END;`);
   return {
     db,
+    executions: sqliteExecutionStore(db),
+    earn: sqliteEarnStore(db),
     saveMarket(m: Market) { db.prepare('INSERT INTO markets VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(m.id, JSON.stringify(m)); },
     snapshot(m: Market, s: Snapshot) { db.prepare('INSERT OR IGNORE INTO snapshots VALUES (?,?,?)').run(m.id,s.at,JSON.stringify(s)); },
     history(id: string): Snapshot[] { return (db.prepare('SELECT payload FROM snapshots WHERE market_id=? ORDER BY at DESC LIMIT 180').all(id) as {payload:string}[]).reverse().map(r=>JSON.parse(r.payload)); },

@@ -1,0 +1,16 @@
+.earn-page { max-width: 1120px; margin-inline: auto; }
+.earn-notice { border: 1px solid #41594c; background: #14251e; color: #c5ecd2; padding: 14px 18px; border-radius: 12px; margin-bottom: 20px; }
+.earn-page .execution-card { margin-block: 22px; padding: 24px; border: 1px solid var(--border, #344139); border-radius: 16px; }
+.earn-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.earn-grid dt { opacity: .7; font-size: .8rem; margin-bottom: 6px; }
+.earn-grid dd { margin: 0; overflow-wrap: anywhere; }
+.earn-form { display: flex; flex-wrap: wrap; gap: 16px; align-items: end; }
+.earn-form label { display: grid; gap: 8px; flex: 1 1 210px; }
+.earn-page input:not([type=checkbox]), .earn-page select { background: #18221e; color: #f2f7f3; border: 1px solid #516259; border-radius: 8px; padding: 12px; width: 100%; min-width: 0; }
+.earn-review { display: flex; gap: 12px; align-items: start; margin-block: 18px; }
+.earn-review input { margin-top: 4px; flex-shrink: 0; }
+.earn-page pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font-size: 12px; }
+.earn-page p, .earn-page a { overflow-wrap: anywhere; }
+.earn-page button:disabled { opacity: .45; cursor: not-allowed; }
+.earn-page li { margin-block: 12px; }
+@media(max-width:640px) { .earn-grid { grid-template-columns: 1fr; } .earn-page .execution-card { padding: 16px; } }

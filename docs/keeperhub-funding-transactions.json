@@ -1,0 +1,44 @@
+{
+  "status": "PREPARED_UNSIGNED_NOT_BROADCAST",
+  "preparedAt": "2026-09-09T03:56:01.395Z",
+  "network": "Somnia Shannon Testnet",
+  "chainId": 50312,
+  "operator": "0x2b270B135667f38bB58Fc9376F29c95173641D31",
+  "executor": "0x5845504E0BF70D28820a89b4eC12bD4CaB9116a0",
+  "instructions": "Review these transfers in the operator wallet on Shannon. Recheck balances and fees before signing. These fund the executor and do not execute a trade.",
+  "transactions": [
+    {
+      "asset": "STT",
+      "amount": "0.1",
+      "estimatedGasAtPreparation": "631500",
+      "estimatedFeeSTTAtPreparation": "0.003789",
+      "request": {
+        "method": "eth_sendTransaction",
+        "params": [{
+          "chainId": "0xc488",
+          "from": "0x2b270B135667f38bB58Fc9376F29c95173641D31",
+          "to": "0x5845504E0BF70D28820a89b4eC12bD4CaB9116a0",
+          "value": "0x16345785d8a0000"
+        }]
+      }
+    },
+    {
+      "asset": "tUSDC",
+      "amount": "5",
+      "decimals": 6,
+      "recipient": "0x5845504E0BF70D28820a89b4eC12bD4CaB9116a0",
+      "estimatedGasAtPreparation": "1393270",
+      "estimatedFeeSTTAtPreparation": "0.00835962",
+      "request": {
+        "method": "eth_sendTransaction",
+        "params": [{
+          "chainId": "0xc488",
+          "from": "0x2b270B135667f38bB58Fc9376F29c95173641D31",
+          "to": "0x70a86D8842FB63C4Ad2b7cdddF530eBf1BB25d8E",
+          "value": "0x0",
+          "data": "0xa9059cbb0000000000000000000000005845504e0bf70d28820a89b4ec12bd4cab9116a000000000000000000000000000000000000000000000000000000000004c4b40"
+        }]
+      }
+    }
+  ]
+}

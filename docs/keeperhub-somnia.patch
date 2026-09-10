@@ -1,0 +1,82 @@
+diff --git a/lib/rpc/rpc-config.ts b/lib/rpc/rpc-config.ts
+--- a/lib/rpc/rpc-config.ts
++++ b/lib/rpc/rpc-config.ts
+@@ -118,4 +118,13 @@
+ export const CHAIN_CONFIG: Record<number, ChainConfigEntry> = {
++  // Somnia Shannon testnet: standard EVM RPC, no sponsorship assumption.
++  50312: {
++    jsonKey: "somnia-shannon",
++    envKey: "CHAIN_SOMNIA_SHANNON_PRIMARY_RPC",
++    fallbackEnvKey: "CHAIN_SOMNIA_SHANNON_FALLBACK_RPC",
++    publicDefault: "https://dream-rpc.somnia.network",
++    publicFallback: "https://api.infra.testnet.somnia.network",
++    publicWssDefault: "wss://api.infra.testnet.somnia.network/ws",
++  },
+   // Ethereum Mainnet
+   1: {
+     jsonKey: "eth-mainnet",
+diff --git a/scripts/seed/seed-chains.ts b/scripts/seed/seed-chains.ts
+--- a/scripts/seed/seed-chains.ts
++++ b/scripts/seed/seed-chains.ts
+@@ -62,4 +62,18 @@
+ const DEFAULT_CHAINS: NewChain[] = [
++  {
++    chainId: getChainConfigValue("somnia-shannon", "chainId", 50312),
++    name: "Somnia Shannon",
++    symbol: getChainConfigValue("somnia-shannon", "symbol", "STT"),
++    chainType: "evm",
++    defaultPrimaryRpc: getRpcUrlByChainId(50312, "primary"),
++    defaultFallbackRpc: getRpcUrlByChainId(50312, "fallback"),
++    defaultPrimaryWss: getWssUrl({ rpcConfig, jsonKey: "somnia-shannon", type: "primary" }),
++    isTestnet: true,
++    isEnabled: getChainConfigValue("somnia-shannon", "isEnabled", true),
++    usePrivateMempoolRpc: false,
++    aliases: ["somnia-shannon", "somnia-testnet"],
++    status: "experimental",
++  },
+   {
+     chainId: getChainConfigValue("eth-mainnet", "chainId", 1),
+     name: "Ethereum Mainnet",
+@@ -636,4 +650,13 @@
+ > = {
++  50312: {
++    chainType: "evm",
++    explorerUrl: "https://shannon-explorer.somnia.network",
++    explorerApiType: "blockscout",
++    explorerApiUrl: "https://shannon-explorer.somnia.network/api",
++    explorerTxPath: "/tx/{hash}",
++    explorerAddressPath: "/address/{address}",
++    explorerContractPath: "/address/{address}?tab=contract",
++  },
+   // Ethereum Mainnet - Etherscan V2
+   1: {
+     chainType: "evm",
+@@ -971,4 +994,5 @@
+   const chainToDefaultIdMap: Record<string, number> = {
++    "Somnia Shannon": 50312,
+     "Ethereum Mainnet": 1,
+     "Ethereum Sepolia": 11_155_111,
+     Base: 8453,
+diff --git a/tests/unit/somnia-shannon-config.test.ts b/tests/unit/somnia-shannon-config.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/unit/somnia-shannon-config.test.ts
+@@ -0,0 +1,18 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { CHAIN_CONFIG, getRpcUrlByChainId } from "../../lib/rpc/rpc-config";
++
++describe("Somnia Shannon configuration", () => {
++  afterEach(() => vi.unstubAllEnvs());
++  it("registers an explicit Shannon RPC configuration", () => {
++    expect(CHAIN_CONFIG[50312]).toMatchObject({
++      jsonKey: "somnia-shannon",
++      publicDefault: "https://dream-rpc.somnia.network",
++      publicFallback: "https://api.infra.testnet.somnia.network",
++    });
++  });
++  it("honors the dedicated primary RPC override", () => {
++    vi.stubEnv("CHAIN_RPC_CONFIG", "");
++    vi.stubEnv("CHAIN_SOMNIA_SHANNON_PRIMARY_RPC", "https://rpc.example.test");
++    expect(getRpcUrlByChainId(50312)).toBe("https://rpc.example.test");
++  });
++});

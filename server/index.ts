@@ -14,6 +14,11 @@ import { exchange, readMarket, publicConfig, chainClient } from './protocol';
 import { publicArenaState } from '../shared/data-quality';
 import { readWithDeadline } from './read-deadline';
 import { proxyIndexerRequest } from './indexer-proxy';
+import { executionRoutes } from './execution-routes';
+import { earnRoutes } from './earn-routes';
+import { EarnService } from './earn-service';
+import { liveEarnProtocol } from './earn-protocol';
+import { KeeperClient, keeperConfig } from './keeperhub';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const store = process.env.DATABASE_URL
@@ -111,6 +116,8 @@ app.use((_req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.
 app.get('/api/health',(_req,res)=>{const current=publicArenaState(state);res.setHeader('Cache-Control','no-store');res.json({status:current.status,chainId:50312,mode:'testnet',updatedAt:current.updatedAt,lastSuccessfulAt:current.lastSuccessfulAt,retryAt:current.retryAt,issue:current.issue,message:current.message});});
 app.get('/api/ready',(_req,res)=>{const current=publicArenaState(state);res.setHeader('Cache-Control','no-store');res.status(current.status==='healthy'?200:503).json({ready:current.status==='healthy',status:current.status,issue:current.issue,lastSuccessfulAt:current.lastSuccessfulAt});});
 app.get('/api/config',(_req,res)=>res.json(publicConfig));
+app.use('/api/executions', executionRoutes(store.executions, () => publicArenaState(state)));
+app.use('/api/earn', earnRoutes(new EarnService(store.earn, new KeeperClient(keeperConfig()), liveEarnProtocol())));
 app.post('/api/indexer',async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   try{

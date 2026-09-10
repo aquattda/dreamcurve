@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import pg from 'pg';
+import { postgresExecutionStore } from './execution-store';
+import { postgresEarnStore } from './earn-store';
 import { chartHistoryQuery, HISTORY_RETENTION_MS } from './chart-history';
 import { AGENTS, brier, paperPnl, type Forecast, type Market, type Proof, type ScoreRow, type Snapshot } from '../shared/domain';
 
@@ -62,6 +64,8 @@ export async function createPostgresStore(databaseUrl: string) {
   `);
 
   return {
+    executions: await postgresExecutionStore(pool),
+    earn: await postgresEarnStore(pool),
     async saveMarket(m: Market) {
       await pool.query('INSERT INTO markets(id,payload) VALUES ($1,$2::jsonb) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload', [m.id, JSON.stringify(m)]);
     },
