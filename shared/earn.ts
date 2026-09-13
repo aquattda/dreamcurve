@@ -40,7 +40,19 @@ export type EarnBody = {
   payload: ContractExecutionPayload; calldata: Hex;
 };
 export type EarnIntent = EarnBody & { intentHash: Hex };
-export type EarnProof = { transactionHash: Hex; blockNumber: string; chainId: typeof EARN_CHAIN; action: EarnAction; amount: string; verified: true; confirmedAt: number };
+export type SponsoredEarnEvidence = {
+  mode: 'keeperhub-sponsored-eip7702'; keeperHubExecutionId: string; intentHash: Hex;
+  outerSender: Address; outerTarget: Address; outerCalldata: Hex; outerValue: '0'; outerNonce: number;
+  executor: Address; innerTarget: Address; innerCalldata: Hex; innerValue: '0';
+  receiptStatus: 'success'; confirmations: string; blockHash: Hex;
+  authorizationSigner: Address; executionSigner: Address; delegate: Address;
+  wrapperCodeHash: Hex; delegateCodeHash: Hex; authorizationNonce: number;
+  executionNonce: string; executionDeadline: number; eventVerified: true; stateVerified: true;
+  allowance: string; allowanceAtReceipt: string; stateBlockNumber: string; stateBlockHash: Hex;
+};
+// Optional mode preserves readability of old stored proofs; every newly created
+// proof has an explicit mode. Sponsored proofs must carry the full evidence.
+export type EarnProof = { transactionHash: Hex; blockNumber: string; chainId: typeof EARN_CHAIN; action: EarnAction; amount: string; verified: true; confirmedAt: number } & ({ mode?: 'direct' } | SponsoredEarnEvidence);
 export type EarnRecord = {
   intent: EarnIntent; revision: number; status: ExecutionStatus; preflight: PreflightResult | null;
   failure: Failure | null; broadcastAttemptedAt: number | null; keeperHubExecutionId: string | null;

@@ -93,12 +93,25 @@ export default function EarnPage({ account, onConnect }: { account: Address | nu
         <p>Aave calls have no onchain deadline argument. Expiry blocks new submissions; a submitted transaction may confirm after expiry.</p>
         <details><summary>Exact frozen payload and authorization</summary><pre>{JSON.stringify(r.intent.payload,null,2)}</pre><pre>{r.authorizationMessage}</pre></details>
         {r.failure ? <p role="alert">{r.failure.code}: {r.failure.message}</p> : null}
-        {safety?.issues.map((i,n) => <p key={n}>{i.message}</p>)}
+        {r.broadcastAttemptedAt === null ? safety?.issues.map((i,n) => <p key={n}>{i.message}</p>) : null}
         <label className="earn-review"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} disabled={Boolean(busy)}/>I reviewed the exact action, token, amount, executor, network and expiry.</label>
         <div className="execution-actions"><button onClick={() => void run('simulate')} disabled={Boolean(busy) || r.broadcastAttemptedAt !== null || now >= r.intent.expiresAt || r.status === 'SIMULATING'}>Run KeeperHub dry run</button><button className="button primary" onClick={() => void run('execute')} disabled={Boolean(busy) || !reviewed || !authorized || r.status !== 'READY' || !safety?.ready || now - safety.checkedAt > 30_000 || now >= r.intent.expiresAt}>Authorize & execute with KeeperHub</button></div>
         {busy ? <p role="status">{busy} in progress…</p> : null}
       </section>
-      <section className="execution-card"><h2>Execution proof</h2><p>KeeperHub ID: {r.keeperHubExecutionId || 'Not available'}</p><p>Independent Aave proof: {r.proof?.verified ? 'Verified event and token movement' : 'Not verified'}</p>{r.txHash ? <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noreferrer">View Sepolia transaction</a> : <p>No transaction hash yet.</p>}
+      <section className="execution-card"><h2>Execution proof</h2><p>KeeperHub ID: {r.keeperHubExecutionId || 'Not available'}</p><p>Independent Aave proof: {r.proof?.verified ? 'VERIFIED' : 'Not verified'}</p>{r.txHash ? <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noreferrer">View Sepolia transaction</a> : <p>No transaction hash yet.</p>}
+        {r.proof?.mode === 'keeperhub-sponsored-eip7702' ? <>
+          <p>Mode: keeperhub-sponsored-eip7702. Sponsor and executor are distinct; both executor signatures and the exact inner call were verified.</p>
+          <dl className="earn-grid">
+            <div><dt>Outer sender (gas sponsor)</dt><dd>{r.proof.outerSender}</dd></div>
+            <div><dt>Outer target (allowlisted Turnkey wrapper)</dt><dd>{r.proof.outerTarget}</dd></div>
+            <div><dt>Verified inner executor</dt><dd>{r.proof.executor}</dd></div>
+            <div><dt>Verified inner target</dt><dd>{r.proof.innerTarget}</dd></div>
+            <div><dt>Receipt / confirmations at verification</dt><dd>{r.proof.receiptStatus} / {r.proof.confirmations}</dd></div>
+            <div><dt>Verified allowance snapshot</dt><dd>{units(r.proof.allowance,r.intent.decimals)} {earnAssetFor(r.intent.token).symbol} at block {r.proof.stateBlockNumber}</dd></div>
+          </dl>
+          <p>Exact Approval event and allowance verified. This is a saved verification snapshot, not a continuously refreshed allowance.</p>
+          <details><summary>Full sponsored proof (outer and inner calldata)</summary><pre>{JSON.stringify(r.proof,null,2)}</pre></details>
+        </> : r.proof?.verified ? <p>Mode: direct. Exact sender, target, calldata and receipt events verified.</p> : null}
         {r.broadcastAttemptedAt !== null && !r.keeperHubExecutionId && r.status === 'CONFIRMING' ? <><label>Original KeeperHub execution ID<input value={recoveryId} onChange={e => setRecoveryId(e.target.value)}/></label><button disabled={Boolean(busy) || !reviewed || !authorized || !/^[\w-]{1,200}$/.test(recoveryId)} onClick={() => void run('recover')}>Verify & recover ID (no resend)</button></> : null}
         <ol>{r.timeline.map((e,n) => <li key={n}><time>{new Date(e.at).toLocaleTimeString()}</time> · {e.event}<p>{e.detail}</p></li>)}</ol>
       </section>

@@ -130,7 +130,7 @@ export class EarnService {
       const receipts = Array.isArray(response.body.receipts) ? response.body.receipts.map(object) : [];
       const receipt = receipts.find(p => p.hash === r.txHash && p.chainId === EARN_CHAIN && p.verified === true);
       if (r.txHash && r.keeperHubStatus === 'completed' && receipt?.receiptStatus === 'success') {
-        r.proof = await this.protocol.verify(r.intent,r.txHash); r.status = 'SUCCESS'; r.failure = null; event(r,'Aave proof verified','Exact call, Aave event and underlying token movement verified independently.');
+        r.proof = await this.verifyBoundExecution(r,r.keeperHubExecutionId!,r.txHash); r.status = 'SUCCESS'; r.failure = null; event(r,'Aave proof verified',r.proof.mode === 'keeperhub-sponsored-eip7702' ? 'Turnkey wrapper, executor authorizations, exact inner call, Approval event and historical/current allowance independently verified.' : 'Exact direct call, Aave event and underlying token movement verified independently.');
       } else if ((!r.txHash && r.keeperHubStatus === 'failed') || (receipt && ['reverted','safe_inner_failure'].includes(String(receipt.receiptStatus)))) { r.status = 'FAILED'; r.failure = normalizeKeeperError(response.body); }
       else { r.failure = { code: 'EXECUTION_UNCERTAIN', message: 'Waiting for matching verified Sepolia receipt and Aave proof. No resend.' }; }
     } catch (e) { r.failure = failure(e); r.status = 'CONFIRMING'; r.pollAfterMs = Math.min(60_000,r.pollAfterMs * 2); }
@@ -142,8 +142,14 @@ export class EarnService {
     if (r.broadcastAttemptedAt === null || !pending(r) || r.keeperHubExecutionId) throw new ExecutionError('INVALID_INPUT','Only unresolved attempted executions without an ID may be recovered.');
     const response = await this.keeper.status(executionId), b = response.body;
     if (b.executionId !== executionId || typeof b.transactionHash !== 'string' || !hashPattern.test(b.transactionHash)) throw new ExecutionError('PROOF_MISMATCH','Recovery needs the original KeeperHub execution and transaction.');
-    await this.protocol.verify(r.intent,b.transactionHash as Hex);
+    await this.verifyBoundExecution(r,executionId,b.transactionHash as Hex);
     this.capture(r,response); event(r,'Execution ID recovered','Exact onchain payload and Aave proof checked before binding ID.');
     r = await this.store.save(r); return this.refresh(r.intent.id);
+  }
+  private async verifyBoundExecution(r: EarnRecord, executionId: string, hash: Hex) {
+    if (r.broadcastAttemptedAt === null) throw new ExecutionError('PROOF_MISMATCH','Missing original broadcast claim.');
+    const others = await this.store.list(r.intent.walletAddress);
+    if (others.some(other => other.intent.id !== r.intent.id && (other.txHash?.toLowerCase() === hash.toLowerCase() || other.keeperHubExecutionId === executionId))) throw new ExecutionError('PROOF_MISMATCH','Transaction or KeeperHub execution is already bound to another intent. No replay.');
+    return this.protocol.verify(r.intent,hash,{ keeperHubExecutionId: executionId, transactionHash: hash, intentHash: r.intent.intentHash, broadcastAttemptedAt: r.broadcastAttemptedAt });
   }
 }

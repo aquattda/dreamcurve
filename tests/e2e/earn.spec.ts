@@ -3,6 +3,7 @@ import { earnAuthorization, type EarnOverview } from '../../shared/earn';
 import { initialEarn } from '../../server/earn-service';
 import { earnFixture, earnHash, earnOperator, earnSnapshot, earnWallet } from '../earn-fixtures';
 import type { EarnView } from '../../src/earn/api';
+import { TURNKEY } from '../../server/earn-sponsored';
 
 // All network results and signatures below are TEST FIXTURES, never live writes.
 async function wallet(page: Page) {
@@ -80,7 +81,31 @@ test('signed Earn fixture uses KeeperHub endpoint and renders verified proof',as
   await page.goto(`/app/earn/${intent.id}`); await page.getByRole('button',{ name: 'Connect Sepolia operator' }).click();
   await page.getByLabel('I reviewed the exact action, token, amount, executor, network and expiry.').check();
   await page.getByRole('button',{ name: 'Authorize & execute with KeeperHub' }).click();
-  await expect(page.getByText('Independent Aave proof: Verified event and token movement')).toBeVisible();
+  await expect(page.getByText('Independent Aave proof: VERIFIED',{ exact: true })).toBeVisible();
   await expect(page.getByRole('link',{ name: 'View Sepolia transaction' })).toHaveAttribute('href',`https://sepolia.etherscan.io/tx/${earnHash}`);
   expect(broadcasts).toBe(1);
+});
+
+test('reconciled sponsored proof distinguishes sponsor from executor and cannot resend',async ({ page }) => {
+  const intent = earnFixture('APPROVAL','sponsored-ui-fixture','LINK');
+  const r: EarnView = { ...initialEarn(intent), status: 'SUCCESS', broadcastAttemptedAt: intent.createdAt, keeperHubExecutionId: 'explicit-sponsored-test-fixture', txHash: earnHash, authorizationMessage: earnAuthorization(intent), proof: {
+    mode: 'keeperhub-sponsored-eip7702', transactionHash: earnHash, chainId: 11155111, blockNumber: '100', action: 'APPROVAL', amount: intent.amount, verified: true, confirmedAt: Date.now(),
+    keeperHubExecutionId: 'explicit-sponsored-test-fixture', intentHash: intent.intentHash,
+    outerSender: earnOperator.address, outerTarget: TURNKEY.wrapper, outerCalldata: '0x', outerValue: '0', outerNonce: 9,
+    executor: intent.walletAddress, innerTarget: intent.token, innerCalldata: intent.calldata, innerValue: '0', receiptStatus: 'success', confirmations: '11', blockHash: earnHash,
+    authorizationSigner: intent.walletAddress, executionSigner: intent.walletAddress, delegate: TURNKEY.delegate, wrapperCodeHash: TURNKEY.wrapperCodeHash, delegateCodeHash: TURNKEY.delegateCodeHash,
+    authorizationNonce: 0, executionNonce: '0', executionDeadline: Math.floor(intent.expiresAt/1000), eventVerified: true, stateVerified: true,
+    allowance: intent.amount, allowanceAtReceipt: intent.amount, stateBlockNumber: '110', stateBlockHash: earnHash,
+  } };
+  await recordRoutes(page,r,false);
+  let posts = 0; page.on('request',request => { if (request.url().includes('/api/earn/') && request.method() === 'POST') posts++; });
+  await page.goto(`/app/earn/${intent.id}`);
+  await expect(page.getByText('Independent Aave proof: VERIFIED',{ exact: true })).toBeVisible();
+  await expect(page.getByText('Outer sender (gas sponsor)',{ exact: true })).toBeVisible();
+  await expect(page.getByText('0.5 LINK at block 110',{ exact: true })).toBeVisible();
+  await expect(page.getByRole('button',{ name: 'Run KeeperHub dry run' })).toBeDisabled();
+  await expect(page.getByRole('button',{ name: 'Authorize & execute with KeeperHub' })).toBeDisabled();
+  await page.getByText('Full sponsored proof (outer and inner calldata)',{ exact: true }).click();
+  await expect(page.getByText('"mode": "keeperhub-sponsored-eip7702"',{ exact: false })).toBeVisible();
+  expect(posts).toBe(0);
 });

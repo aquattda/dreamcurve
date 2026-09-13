@@ -125,6 +125,25 @@ describe('Earn durable execution',() => {
     expect((await k.store.get(i.id))?.status).toBe('SUCCESS'); expect(k.verify).toHaveBeenCalled();
   });
   it('rechecks balances after review',async () => { const k = kit(), { i,signature } = await ready(k); k.snapshot.mockResolvedValue({ ...earnSnapshot(), tokenBalance: '0' }); expect((await k.service.execute(i.id,signature)).status).toBe('BLOCKED'); expect(k.writes()).toHaveLength(0); });
+  it('reconciles an existing attempt with immutable execution context and no broadcast',async () => {
+    const k = kit(), i = earnFixture('APPROVAL'), r = initialEarn(i);
+    r.status = 'CONFIRMING'; r.broadcastAttemptedAt = i.createdAt; r.keeperHubExecutionId = 'earn-test-exec'; r.txHash = earnHash;
+    await k.store.insert(r);
+    const result = await k.service.refresh(i.id);
+    expect(result.status).toBe('SUCCESS'); expect(result.proof?.verified).toBe(true); expect(result.intent).toEqual(i);
+    expect(k.verify).toHaveBeenCalledWith(i,earnHash,{ keeperHubExecutionId: 'earn-test-exec', transactionHash: earnHash, intentHash: i.intentHash, broadcastAttemptedAt: i.createdAt });
+    await k.service.refresh(i.id); expect(k.verify).toHaveBeenCalledTimes(1); expect(k.writes()).toHaveLength(0);
+  });
+  it.each(['hash','execution ID'])('rejects reuse of a %s already bound to another intent',async field => {
+    const k = kit(), old = initialEarn(earnFixture('APPROVAL','old-proof'));
+    old.status = 'FAILED'; old.broadcastAttemptedAt = old.intent.createdAt;
+    if (field === 'hash') old.txHash = earnHash; else old.keeperHubExecutionId = 'earn-test-exec';
+    await k.store.insert(old);
+    const r = initialEarn(earnFixture('APPROVAL','new-proof')); r.status = 'CONFIRMING'; r.broadcastAttemptedAt = r.intent.createdAt; r.keeperHubExecutionId = 'earn-test-exec'; r.txHash = earnHash;
+    await k.store.insert(r); const result = await k.service.refresh(r.intent.id);
+    expect(result.status).toBe('CONFIRMING'); expect(result.failure?.message).toContain('already bound');
+    expect(result.proof).toBeNull(); expect(k.verify).not.toHaveBeenCalled(); expect(k.writes()).toHaveLength(0);
+  });
   it('rejects a mismatching simulation sender',async () => {
     const k = kit(); vi.spyOn(k.keeper,'simulate').mockResolvedValue({ body: { success: true, status: 'simulated', wouldRevert: false, from: AAVE.pool, to: AAVE.pool, value: '0', gasEstimate: '70000' }, pollAfterMs: 5000 });
     await k.store.insert(initialEarn(earnFixture())); expect((await k.service.simulate('earn-test')).failure?.code).toBe('PROOF_MISMATCH');

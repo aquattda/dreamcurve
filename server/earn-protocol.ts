@@ -1,7 +1,8 @@
-import { createPublicClient, decodeEventLog, erc20Abi, http, parseAbi, type Address, type Hex, type Transaction, type TransactionReceipt } from 'viem';
+import { createPublicClient, decodeEventLog, erc20Abi, http, keccak256, parseAbi, type Address, type Hex, type Transaction, type TransactionReceipt } from 'viem';
 import { sepolia } from 'viem/chains';
 import { AAVE, EARN_ASSETS, EARN_CHAIN, earnAbi, earnAssetFor, freshEarn, verifyEarn, type EarnIntent, type EarnProof, type EarnSnapshot } from '../shared/earn';
 import { ExecutionError } from '../shared/execution';
+import { TURNKEY, turnkeyNonceAbi, verifySponsoredEnvelope, type EarnVerificationContext } from './earn-sponsored';
 
 const providerAbi = parseAbi(['function getPool() view returns (address)']);
 const dataAbi = parseAbi([
@@ -15,8 +16,7 @@ export function decodeReserveConfiguration(data: bigint) {
   return { decimals: Number((data >> 48n) & 255n), active: Boolean((data >> 56n) & 1n), frozen: Boolean((data >> 57n) & 1n), paused: Boolean((data >> 60n) & 1n), supplyCap: ((data >> 116n) & ((1n << 36n) - 1n)).toString() };
 }
 const same = (a: string | null | undefined, b: string) => a?.toLowerCase() === b.toLowerCase();
-export function earnClient() {
-  const endpoint = process.env.EARN_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
+export function earnClient(endpoint = process.env.EARN_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com') {
   const url = new URL(endpoint);
   if (url.protocol !== 'https:' || url.username || url.password) throw new ExecutionError('CONFIGURATION_REQUIRED', 'Earn RPC must be an HTTPS URL without embedded credentials.');
   // Batch parallel reads instead of opening a connection for every balance/flag.
@@ -61,6 +61,11 @@ export function verifyEarnReceipt(i: EarnIntent, hash: Hex, tx: Transaction, rec
     const routing = tx.type === 'eip7702' ? ' EIP-7702 envelope detected; sponsored-call reconciliation is required. Do not resubmit.' : '';
     throw new ExecutionError('PROOF_MISMATCH', `Sepolia transaction does not match this exact Earn intent. Mismatched fields: ${mismatches.join(', ')}.${routing}`);
   }
+  verifyEarnEvents(i,receipt);
+  return { mode: 'direct', transactionHash: hash, blockNumber: receipt.blockNumber.toString(), chainId: EARN_CHAIN, action: i.action, amount: i.amount, verified: true, confirmedAt: Date.now() };
+}
+// Shared event checks only. Never manufacture a direct envelope for a wrapper.
+export function verifyEarnEvents(i: EarnIntent, receipt: TransactionReceipt) {
   let eventMatch = false, transferMatch = i.action === 'APPROVAL';
   for (const log of receipt.logs) {
     if (same(log.address,i.token)) {
@@ -82,11 +87,10 @@ export function verifyEarnReceipt(i: EarnIntent, hash: Hex, tx: Transaction, rec
     }
   }
   if (!eventMatch || !transferMatch) throw new ExecutionError('PROOF_MISMATCH', 'Matching Aave event and exact underlying token movement are required.');
-  return { transactionHash: hash, blockNumber: receipt.blockNumber.toString(), chainId: EARN_CHAIN, action: i.action, amount: i.amount, verified: true, confirmedAt: Date.now() };
 }
 export interface EarnProtocol {
   snapshot(wallet: Address, token?: Address): Promise<EarnSnapshot>;
-  verify(i: EarnIntent, hash: Hex): Promise<EarnProof>;
+  verify(i: EarnIntent, hash: Hex, context?: EarnVerificationContext): Promise<EarnProof>;
 }
 export function liveEarnProtocol(): EarnProtocol {
   const c = earnClient();
@@ -119,11 +123,45 @@ export function liveEarnProtocol(): EarnProtocol {
         throw new ExecutionError('SIMULATOR_UNAVAILABLE', typeof name === 'string' && known.includes(name) ? `Aave Sepolia read failed at ${name}. Check the RPC and deployed contract; execution stays blocked.` : 'Sepolia RPC did not complete the state read. Retry the read or configure a working free EARN_RPC_URL. Execution stays blocked.');
       }
     },
-    async verify(i, hash) {
+    async verify(i, hash, context) {
       if (await c.getChainId() !== EARN_CHAIN) throw new ExecutionError('NETWORK_UNSUPPORTED', 'Proof RPC is not Sepolia.');
-      const [tx, receipt, block] = await Promise.all([c.getTransaction({ hash }), c.getTransactionReceipt({ hash }), c.getBlockNumber()]);
-      if (block < receipt.blockNumber + 1n) throw new ExecutionError('EXECUTION_UNCERTAIN', 'Waiting for two Sepolia confirmations.');
-      return verifyEarnReceipt(i,hash,tx,receipt);
+      let reader = c, receipt: TransactionReceipt;
+      try { receipt = await reader.getTransactionReceipt({ hash }); }
+      catch {
+        // A public RPC may prune receipts. This no-key public endpoint is used
+        // for reads only; all proof evidence is re-read from the selected RPC.
+        reader = earnClient('https://sepolia.gateway.tenderly.co');
+        if (await reader.getChainId() !== EARN_CHAIN) throw new ExecutionError('NETWORK_UNSUPPORTED','Fallback proof RPC is not Sepolia.');
+        receipt = await reader.getTransactionReceipt({ hash });
+      }
+      const [tx, mined, latest] = await Promise.all([reader.getTransaction({ hash }), reader.getBlock({ blockNumber: receipt.blockNumber }), reader.getBlock({ blockTag: 'latest' })]);
+      if (latest.number < receipt.blockNumber + 1n) throw new ExecutionError('EXECUTION_UNCERTAIN', 'Waiting for two Sepolia confirmations.');
+      if (tx.blockHash !== mined.hash || receipt.blockHash !== mined.hash || tx.blockNumber !== receipt.blockNumber || tx.transactionIndex !== receipt.transactionIndex || receipt.logs.some(l => l.removed || l.transactionHash !== hash || l.blockHash !== mined.hash || l.blockNumber !== mined.number)) throw new ExecutionError('PROOF_MISMATCH','Canonical transaction, receipt and log block binding failed.');
+      let proof: EarnProof;
+      if (tx.type === 'eip7702' && same(tx.to,TURNKEY.wrapper)) {
+        const atReceipt = { blockNumber: receipt.blockNumber };
+        const [wrapperCode,delegateCode,executorCode,executionNonceAfter,allowanceAtReceipt,currentAllowance,authorizationNonceBefore,authorizationNonceAfter] = await Promise.all([
+          reader.getCode({ address: TURNKEY.wrapper, ...atReceipt }), reader.getCode({ address: TURNKEY.delegate, ...atReceipt }),
+          reader.getCode({ address: i.walletAddress, ...atReceipt }),
+          reader.readContract({ address: i.walletAddress, abi: turnkeyNonceAbi, functionName: 'nonce', ...atReceipt }),
+          reader.readContract({ address: i.token, abi: erc20Abi, functionName: 'allowance', args: [i.walletAddress,i.pool], ...atReceipt }),
+          reader.readContract({ address: i.token, abi: erc20Abi, functionName: 'allowance', args: [i.walletAddress,i.pool], blockNumber: latest.number }),
+          reader.getTransactionCount({ address: i.walletAddress, blockNumber: receipt.blockNumber - 1n }),
+          reader.getTransactionCount({ address: i.walletAddress, ...atReceipt }),
+        ]);
+        const evidence = await verifySponsoredEnvelope(i,hash,tx,receipt,{
+          blockHash: mined.hash, blockNumber: mined.number, timestamp: mined.timestamp, latestBlock: latest.number, latestBlockHash: latest.hash,
+          wrapperCodeHash: keccak256(wrapperCode || '0x'), delegateCodeHash: keccak256(delegateCode || '0x'), executorCode: executorCode || '0x',
+          executionNonceAfter, allowanceAtReceipt, currentAllowance, authorizationNonceBefore, authorizationNonceAfter,
+        },context);
+        verifyEarnEvents(i,receipt);
+        proof = { transactionHash: hash, blockNumber: receipt.blockNumber.toString(), chainId: EARN_CHAIN, action: i.action, amount: i.amount, verified: true, confirmedAt: Date.now(), ...evidence, eventVerified: true as const };
+      } else proof = verifyEarnReceipt(i,hash,tx,receipt);
+      // Historical reads are block-number pinned. Detect a reorg spanning them
+      // before accepting the proof (including the current allowance snapshot).
+      const [minedAgain,latestAgain] = await Promise.all([reader.getBlock({ blockNumber: mined.number }),reader.getBlock({ blockNumber: latest.number })]);
+      if (minedAgain.hash !== mined.hash || latestAgain.hash !== latest.hash) throw new ExecutionError('EXECUTION_UNCERTAIN','Sepolia block changed during proof verification. Read again; do not resend.');
+      return proof;
     },
   };
 }
