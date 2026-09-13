@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "doctor": "tsx scripts/doctor.ts",
     "keeperhub:doctor": "tsx scripts/keeperhub-doctor.ts",
-    "earn:doctor": "tsx scripts/earn-doctor.ts"
+    "earn:doctor": "tsx scripts/earn-doctor.ts",
+    "earn:reconcile-production": "tsx scripts/earn-reconcile-production.ts --reconcile-step1"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "5.3.0",
