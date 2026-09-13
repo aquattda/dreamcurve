@@ -143,7 +143,11 @@ export function liveEarnProtocol(): EarnProtocol {
     },
     async verify(i, hash, context) {
       if (await c.getChainId() !== EARN_CHAIN) throw new ExecutionError('NETWORK_UNSUPPORTED', 'Proof RPC is not Sepolia.');
-      let reader = c, receipt: TransactionReceipt;
+      // Current reserve reads and historical proof reads can use endpoints with
+      // different retention profiles. Both are independently chain-checked.
+      let reader = process.env.EARN_PROOF_RPC_URL ? earnClient(process.env.EARN_PROOF_RPC_URL) : c;
+      if (reader !== c && await reader.getChainId() !== EARN_CHAIN) throw new ExecutionError('NETWORK_UNSUPPORTED', 'Configured proof RPC is not Sepolia.');
+      let receipt: TransactionReceipt;
       try { receipt = await reader.getTransactionReceipt({ hash }); }
       catch {
         // A public RPC may prune receipts. This no-key public endpoint is used
