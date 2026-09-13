@@ -1,5 +1,7 @@
 # STEP 1 reconciliation — 2026-09-13
 
+Historical STEP 1 audit below. The [SUPPLY verifier follow-up](#supply-verifier-follow-up--2026-09-13) supersedes the original approval-only limitation and expired STEP 2 simulation review.
+
 STEP 1 is **SUCCESS / VERIFIED**, not just KeeperHub-confirmed. No new transaction was submitted. STEP 2 was prepared and simulated only; it has no broadcast claim, execution ID or transaction hash. No supply, withdrawal, mainnet operation or billing change occurred.
 
 ## Existing execution and immutable intent
@@ -122,3 +124,60 @@ STEP 1 has no remaining reconciliation blocker. The new sponsored path deliberat
 No STEP 2 execution is authorized by this report. Wait for explicit user approval and manual MetaMask authorization, then recheck state, billing conditions and simulation before any future broadcast. After expiry, a fresh reviewed intent is required; never modify this frozen intent's expiry. No withdrawal is prepared or authorized.
 
 Work remains on `keeperhub-integration`; no merge to `main`, Git commit, push, or tag mutation was performed in this turn.
+
+## SUPPLY verifier follow-up — 2026-09-13
+
+Implemented and tested sponsored **single-call LINK SUPPLY** on the same pinned Turnkey wrapper. No SUPPLY or WITHDRAW transaction has been sent. Existing direct verification and the stored STEP 1 intent/proof were preserved. A read-only re-verification of the original STEP 1 transaction with the extended verifier also passed, with allowance still 500000000000000000.
+
+### Added checks
+
+- EIP-7702 outer envelopes retain the original single authorization, chain, delegate, recovered executor and applied account-nonce checks.
+- For SUPPLY only, an EIP-1559 outer envelope may reuse delegation. It must have no authorization list; the executor must already have the exact delegation code in the parent block and retain it in the receipt block. Prior/current wrapper and delegate runtime pins must match; the executor account nonce stays unchanged and the sponsor differs from the executor. The [EIP-7702 specification](https://eips.ethereum.org/EIPS/eip-7702) defines persistent delegation.
+- Both paths still recover the EIP-712 signer against the executor domain, validate the exact inner call and require delegate execution nonce `n → n+1`. The proof explicitly reports authorization mode and outer transaction type. Reuse reports `authorizationSigner=null`; it never invents a new EIP-7702 signature.
+- Require exact Aave Supply and underlying Transfer events plus one aLINK Mint event for the executor. Historical LINK debit must equal the frozen amount. Prior allowance must equal that amount; receipt/current allowance must be zero.
+- Verify exact scaled aLINK mint, accounting separately for accrued interest and liquidity index. The pinned implementation uses ray half-up division and multiplication; see its [verified deployed source](https://sepolia.etherscan.io/address/0x48424f2779be0f03cdf6f02e17a591a9bf7af89f#code) and [Aave scaled-token implementation](https://raw.githubusercontent.com/aave/aave-v3-core/master/contracts/protocol/tokenization/base/ScaledBalanceTokenBase.sol).
+- Pin aLINK implementation before/after, its runtime hash, and pool/underlying mapping. New preflight checks reject unsupported delegation/deployment or non-exact allowance before KeeperHub simulation and again before any future broadcast.
+
+```text
+aLINK implementation: 0x48424f2779be0f03cdf6f02e17a591a9bf7af89f
+runtime keccak256:    0x6d4978b4862ad22d5903db41a2f09a1a783053c12d8936fa7a63ed915aef008b
+```
+
+The state comparison is deliberately conservative: other executor activity in the same block, a later changed position/allowance, an aToken upgrade, an unknown wrapper overload or unsupported envelope causes reconciliation to fail closed. Do not automatically retry a broadcast on such a mismatch. Sponsored withdrawal and batches remain unsupported; no withdrawal is authorized.
+
+### Changed files and verification
+
+Added `server/earn-supply.ts`. Extended `server/earn-sponsored.ts`, `server/earn-protocol.ts`, `server/earn-service.ts`, `shared/earn.ts`, `src/earn/EarnPage.tsx`, `scripts/earn-reconcile.ts`, and the Earn unit/E2E tests. The scoped simulation script now refuses to prepare another SUPPLY if an attempted SUPPLY exists, and marks expired unsubmitted reviews stale without modifying their frozen intents.
+
+- TypeScript: PASS (checked again after resuming).
+- Unit/integration suite: **290 tests passed, 13 files**; includes **179 Earn tests**.
+- Earn browser E2E: **7 passed**, including sponsored approval and supply UI evidence with explicit mock wallets/API responses.
+- Production build: PASS.
+- Browser skills checked the updated UI, disabled STEP 1 resend controls, no error overlay, no application console errors, and home navigation.
+
+### Fresh STEP 2 review — simulation only
+
+The initial tool attempt was stopped before execution by an approval-review usage limit. After the user's continuation request and a read-only inspection of the script's no-broadcast safeguards, the same approved tool path ran successfully. No workaround, paid upgrade or billing mutation was used.
+
+| Field | Value |
+| --- | --- |
+| Intent ID | `f09b9170-ead3-4cc1-b3ce-666a2f8e9646` |
+| Intent hash | `0x33bc2b2aa63c261eefaf8a95a9c6c1bd7dab42bcd4ca80dbf3f3281b488ade7e` |
+| Network | Ethereum Sepolia, chain ID 11155111 |
+| Executor / beneficiary | `0x5845504E0BF70D28820a89b4eC12bD4CaB9116a0` |
+| Token | `0xf8Fb3713D459D7C1018BD0A49D19b4C44290EBE5` |
+| Target / Aave Pool | `0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951` |
+| Function | `supply(address,uint256,address,uint16)` |
+| Amount / value / referralCode | 500000000000000000 (0.5 LINK) / 0 ETH / 0 |
+| Simulation | PASS, wouldRevert=false, estimated gas **217826** |
+| Simulated at | 2026-09-13 08:38:58.589 UTC |
+| Expires | 2026-09-13 08:48:53.973 UTC (15:48:53.973 Vietnam time) |
+| Broadcast claim / execution ID / transaction hash | All null — NOT EXECUTED |
+
+Exact calldata (unchanged call fields; new ID/hash/expiry because the old review expired):
+
+```text
+0x617ba037000000000000000000000000f8fb3713d459d7c1018bd0a49d19b4c44290ebe500000000000000000000000000000000000000000000000006f05b59d3b200000000000000000000000000005845504e0bf70d28820a89b4ec12bd4cab9116a00000000000000000000000000000000000000000000000000000000000000000
+```
+
+STOP before execution. This is a successful dry run, not an on-chain SUPPLY proof. Explicit STEP 2 approval, the operator's manual MetaMask authorization, fresh preflight/billing checks and subsequent receipt verification are still required. If this review expires, prepare and review a new intent; never extend a frozen intent or reuse the expired authorization.

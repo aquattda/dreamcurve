@@ -2,7 +2,8 @@ import { createPublicClient, decodeEventLog, erc20Abi, http, keccak256, parseAbi
 import { sepolia } from 'viem/chains';
 import { AAVE, EARN_ASSETS, EARN_CHAIN, earnAbi, earnAssetFor, freshEarn, verifyEarn, type EarnIntent, type EarnProof, type EarnSnapshot } from '../shared/earn';
 import { ExecutionError } from '../shared/execution';
-import { TURNKEY, turnkeyNonceAbi, verifySponsoredEnvelope, type EarnVerificationContext } from './earn-sponsored';
+import { TURNKEY, turnkeyNonceAbi, turnkeyNonceSlot, verifySponsoredEnvelope, type EarnVerificationContext } from './earn-sponsored';
+import { A_LINK, aTokenProofAbi, type SupplyChainEvidence } from './earn-supply';
 
 const providerAbi = parseAbi(['function getPool() view returns (address)']);
 const dataAbi = parseAbi([
@@ -91,10 +92,27 @@ export function verifyEarnEvents(i: EarnIntent, receipt: TransactionReceipt) {
 export interface EarnProtocol {
   snapshot(wallet: Address, token?: Address): Promise<EarnSnapshot>;
   verify(i: EarnIntent, hash: Hex, context?: EarnVerificationContext): Promise<EarnProof>;
+  checkSupplyRoute?(i: EarnIntent): Promise<void>;
 }
 export function liveEarnProtocol(): EarnProtocol {
   const c = earnClient();
   return {
+    async checkSupplyRoute(i) {
+      verifyEarn(i);
+      if (i.action !== 'SUPPLY' || i.token !== EARN_ASSETS.LINK.token) throw new ExecutionError('CONFIGURATION_REQUIRED','Sponsored SUPPLY supports only audited Sepolia LINK.');
+      if (await c.getChainId() !== EARN_CHAIN) throw new ExecutionError('NETWORK_UNSUPPORTED','Supply route RPC is not Sepolia.');
+      const block = await c.getBlock(), at = { blockNumber: block.number };
+      const [wrapper,delegate,executor,implementation,implementationCode,pool,underlying,allowance] = await Promise.all([
+        c.getCode({ address: TURNKEY.wrapper, ...at }), c.getCode({ address: TURNKEY.delegate, ...at }), c.getCode({ address: i.walletAddress, ...at }),
+        c.getStorageAt({ address: i.aToken, slot: A_LINK.implementationSlot, ...at }), c.getCode({ address: A_LINK.implementation, ...at }),
+        c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'POOL', ...at }),
+        c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'UNDERLYING_ASSET_ADDRESS', ...at }),
+        c.readContract({ address: i.token, abi: erc20Abi, functionName: 'allowance', args: [i.walletAddress,i.pool], ...at }),
+      ]);
+      if (keccak256(wrapper || '0x') !== TURNKEY.wrapperCodeHash || keccak256(delegate || '0x') !== TURNKEY.delegateCodeHash || (executor && executor !== '0x' && !same(executor,`0xef0100${TURNKEY.delegate.slice(2)}`)) || !same(implementation,`0x${'0'.repeat(24)}${A_LINK.implementation.slice(2)}`) || keccak256(implementationCode || '0x') !== A_LINK.codeHash || !same(pool,i.pool) || !same(underlying,i.token)) throw new ExecutionError('PROOF_MISMATCH','SUPPLY verifier deployment/delegation readiness check failed. No broadcast.');
+      if (allowance !== BigInt(i.amount)) throw new ExecutionError('ALLOWANCE_REQUIRED','SUPPLY verifier requires an exact bounded allowance matching this amount. Do not auto-approve.');
+      if ((await c.getBlock({ blockNumber: block.number })).hash !== block.hash) throw new ExecutionError('EXECUTION_UNCERTAIN','Supply readiness block changed. Read again.');
+    },
     async snapshot(wallet, token = EARN_ASSETS.LINK.token) {
       try {
       const asset = earnAssetFor(token);
@@ -138,7 +156,7 @@ export function liveEarnProtocol(): EarnProtocol {
       if (latest.number < receipt.blockNumber + 1n) throw new ExecutionError('EXECUTION_UNCERTAIN', 'Waiting for two Sepolia confirmations.');
       if (tx.blockHash !== mined.hash || receipt.blockHash !== mined.hash || tx.blockNumber !== receipt.blockNumber || tx.transactionIndex !== receipt.transactionIndex || receipt.logs.some(l => l.removed || l.transactionHash !== hash || l.blockHash !== mined.hash || l.blockNumber !== mined.number)) throw new ExecutionError('PROOF_MISMATCH','Canonical transaction, receipt and log block binding failed.');
       let proof: EarnProof;
-      if (tx.type === 'eip7702' && same(tx.to,TURNKEY.wrapper)) {
+      if (same(tx.to,TURNKEY.wrapper)) {
         const atReceipt = { blockNumber: receipt.blockNumber };
         const [wrapperCode,delegateCode,executorCode,executionNonceAfter,allowanceAtReceipt,currentAllowance,authorizationNonceBefore,authorizationNonceAfter] = await Promise.all([
           reader.getCode({ address: TURNKEY.wrapper, ...atReceipt }), reader.getCode({ address: TURNKEY.delegate, ...atReceipt }),
@@ -149,10 +167,18 @@ export function liveEarnProtocol(): EarnProtocol {
           reader.getTransactionCount({ address: i.walletAddress, blockNumber: receipt.blockNumber - 1n }),
           reader.getTransactionCount({ address: i.walletAddress, ...atReceipt }),
         ]);
+        const prior = { blockNumber: receipt.blockNumber - 1n };
+        const supplyReads = i.action === 'SUPPLY' ? await Promise.all([
+          reader.getCode({ address: i.walletAddress, ...prior }), reader.getStorageAt({ address: i.walletAddress, slot: turnkeyNonceSlot, ...prior }),
+          reader.getCode({ address: TURNKEY.wrapper, ...prior }), reader.getCode({ address: TURNKEY.delegate, ...prior }),
+          readSupplyEvidence(reader,i,receipt.blockNumber,latest.number),
+        ]) : null;
         const evidence = await verifySponsoredEnvelope(i,hash,tx,receipt,{
           blockHash: mined.hash, blockNumber: mined.number, timestamp: mined.timestamp, latestBlock: latest.number, latestBlockHash: latest.hash,
           wrapperCodeHash: keccak256(wrapperCode || '0x'), delegateCodeHash: keccak256(delegateCode || '0x'), executorCode: executorCode || '0x',
           executionNonceAfter, allowanceAtReceipt, currentAllowance, authorizationNonceBefore, authorizationNonceAfter,
+          ...(supplyReads ? { executorCodeBefore: supplyReads[0] || '0x', executionNonceBefore: BigInt(supplyReads[1] || '0x0') & ((1n << 128n)-1n),
+            wrapperCodeHashBefore: keccak256(supplyReads[2] || '0x'), delegateCodeHashBefore: keccak256(supplyReads[3] || '0x'), supply: supplyReads[4] } : {}),
         },context);
         verifyEarnEvents(i,receipt);
         proof = { transactionHash: hash, blockNumber: receipt.blockNumber.toString(), chainId: EARN_CHAIN, action: i.action, amount: i.amount, verified: true, confirmedAt: Date.now(), ...evidence, eventVerified: true as const };
@@ -164,4 +190,23 @@ export function liveEarnProtocol(): EarnProtocol {
       return proof;
     },
   };
+}
+
+async function readSupplyEvidence(c: ReturnType<typeof earnClient>, i: EarnIntent, receiptBlock: bigint, stateBlock: bigint): Promise<SupplyChainEvidence> {
+  const before = { blockNumber: receiptBlock-1n }, after = { blockNumber: receiptBlock };
+  const [tokenBefore,tokenAfter,allowanceBefore,scaledBefore,scaledAfter,currentScaled,previousIndexBefore,indexAfter,implementationBefore,implementationAfter,code,pool,underlying] = await Promise.all([
+    c.readContract({ address: i.token, abi: erc20Abi, functionName: 'balanceOf', args: [i.walletAddress], ...before }),
+    c.readContract({ address: i.token, abi: erc20Abi, functionName: 'balanceOf', args: [i.walletAddress], ...after }),
+    c.readContract({ address: i.token, abi: erc20Abi, functionName: 'allowance', args: [i.walletAddress,i.pool], ...before }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'scaledBalanceOf', args: [i.walletAddress], ...before }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'scaledBalanceOf', args: [i.walletAddress], ...after }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'scaledBalanceOf', args: [i.walletAddress], blockNumber: stateBlock }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'getPreviousIndex', args: [i.walletAddress], ...before }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'getPreviousIndex', args: [i.walletAddress], ...after }),
+    c.getStorageAt({ address: i.aToken, slot: A_LINK.implementationSlot, ...before }), c.getStorageAt({ address: i.aToken, slot: A_LINK.implementationSlot, ...after }),
+    c.getCode({ address: A_LINK.implementation, ...after }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'POOL', ...after }),
+    c.readContract({ address: i.aToken, abi: aTokenProofAbi, functionName: 'UNDERLYING_ASSET_ADDRESS', ...after }),
+  ]);
+  return { tokenBefore,tokenAfter,allowanceBefore,scaledBefore,scaledAfter,currentScaled,previousIndexBefore,indexAfter,implementationBefore: implementationBefore || '0x',implementationAfter: implementationAfter || '0x',implementationCodeHash: keccak256(code || '0x'),pool,underlying };
 }

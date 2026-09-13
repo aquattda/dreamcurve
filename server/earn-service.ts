@@ -61,6 +61,7 @@ export class EarnService {
     if (r.intent.walletAddress.toLowerCase() !== this.keeper.config.wallet!.toLowerCase()) throw new ExecutionError('UNAUTHORIZED','Earn executor configuration changed.');
     await this.budget(r.intent); await this.connection();
     checkEarnSnapshot(r.intent,await this.protocol.snapshot(r.intent.walletAddress,r.intent.token));
+    if (r.intent.action === 'SUPPLY') await this.protocol.checkSupplyRoute?.(r.intent);
     const { body } = await this.keeper.simulate(r.intent.payload);
     if (body.success !== true || body.status !== 'simulated' || body.wouldRevert !== false) { const f = normalizeKeeperError(body,400); throw new ExecutionError(f.code,f.message); }
     if (typeof body.from !== 'string' || body.from.toLowerCase() !== r.intent.walletAddress.toLowerCase() || typeof body.to !== 'string' || body.to.toLowerCase() !== r.intent.payload.contractAddress.toLowerCase() || body.value !== '0' || typeof body.gasEstimate !== 'string') throw new ExecutionError('PROOF_MISMATCH','KeeperHub dry run must match executor, target, value and return a gas estimate.');
@@ -130,7 +131,7 @@ export class EarnService {
       const receipts = Array.isArray(response.body.receipts) ? response.body.receipts.map(object) : [];
       const receipt = receipts.find(p => p.hash === r.txHash && p.chainId === EARN_CHAIN && p.verified === true);
       if (r.txHash && r.keeperHubStatus === 'completed' && receipt?.receiptStatus === 'success') {
-        r.proof = await this.verifyBoundExecution(r,r.keeperHubExecutionId!,r.txHash); r.status = 'SUCCESS'; r.failure = null; event(r,'Aave proof verified',r.proof.mode === 'keeperhub-sponsored-eip7702' ? 'Turnkey wrapper, executor authorizations, exact inner call, Approval event and historical/current allowance independently verified.' : 'Exact direct call, Aave event and underlying token movement verified independently.');
+        r.proof = await this.verifyBoundExecution(r,r.keeperHubExecutionId!,r.txHash); r.status = 'SUCCESS'; r.failure = null; event(r,'Aave proof verified',r.proof.mode === 'keeperhub-sponsored-eip7702' ? `Turnkey wrapper, executor authorization/delegation, exact inner ${r.intent.action} call, receipt events and historical/current chain state independently verified.` : 'Exact direct call, Aave event and underlying token movement verified independently.');
       } else if ((!r.txHash && r.keeperHubStatus === 'failed') || (receipt && ['reverted','safe_inner_failure'].includes(String(receipt.receiptStatus)))) { r.status = 'FAILED'; r.failure = normalizeKeeperError(response.body); }
       else { r.failure = { code: 'EXECUTION_UNCERTAIN', message: 'Waiting for matching verified Sepolia receipt and Aave proof. No resend.' }; }
     } catch (e) { r.failure = failure(e); r.status = 'CONFIRMING'; r.pollAfterMs = Math.min(60_000,r.pollAfterMs * 2); }

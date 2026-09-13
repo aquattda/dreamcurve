@@ -45,10 +45,15 @@ export type SponsoredEarnEvidence = {
   outerSender: Address; outerTarget: Address; outerCalldata: Hex; outerValue: '0'; outerNonce: number;
   executor: Address; innerTarget: Address; innerCalldata: Hex; innerValue: '0';
   receiptStatus: 'success'; confirmations: string; blockHash: Hex;
-  authorizationSigner: Address; executionSigner: Address; delegate: Address;
-  wrapperCodeHash: Hex; delegateCodeHash: Hex; authorizationNonce: number;
+  authorizationSigner: Address | null; executionSigner: Address; delegate: Address;
+  authorizationMode?: 'included-eip7702' | 'existing-delegation';
+  outerType?: 'eip7702' | 'eip1559';
+  wrapperCodeHash: Hex; delegateCodeHash: Hex; authorizationNonce: number | null;
   executionNonce: string; executionDeadline: number; eventVerified: true; stateVerified: true;
   allowance: string; allowanceAtReceipt: string; stateBlockNumber: string; stateBlockHash: Hex;
+  supply?: { tokenBalanceBefore: string; tokenBalanceAfter: string; allowanceBefore: string;
+    scaledBalanceBefore: string; scaledBalanceAfter: string; scaledMinted: string; currentScaledBalance: string;
+    liquidityIndex: string; accruedInterest: string; aTokenImplementation: Address; aTokenCodeHash: Hex };
 };
 // Optional mode preserves readability of old stored proofs; every newly created
 // proof has an explicit mode. Sponsored proofs must carry the full evidence.

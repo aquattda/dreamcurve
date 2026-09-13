@@ -86,23 +86,32 @@ test('signed Earn fixture uses KeeperHub endpoint and renders verified proof',as
   expect(broadcasts).toBe(1);
 });
 
-test('reconciled sponsored proof distinguishes sponsor from executor and cannot resend',async ({ page }) => {
-  const intent = earnFixture('APPROVAL','sponsored-ui-fixture','LINK');
+for (const action of ['APPROVAL','SUPPLY'] as const) test(`reconciled sponsored ${action} proof distinguishes sponsor from executor and cannot resend`,async ({ page }) => {
+  const intent = earnFixture(action,'sponsored-ui-fixture','LINK');
   const r: EarnView = { ...initialEarn(intent), status: 'SUCCESS', broadcastAttemptedAt: intent.createdAt, keeperHubExecutionId: 'explicit-sponsored-test-fixture', txHash: earnHash, authorizationMessage: earnAuthorization(intent), proof: {
-    mode: 'keeperhub-sponsored-eip7702', transactionHash: earnHash, chainId: 11155111, blockNumber: '100', action: 'APPROVAL', amount: intent.amount, verified: true, confirmedAt: Date.now(),
+    mode: 'keeperhub-sponsored-eip7702', transactionHash: earnHash, chainId: 11155111, blockNumber: '100', action, amount: intent.amount, verified: true, confirmedAt: Date.now(),
     keeperHubExecutionId: 'explicit-sponsored-test-fixture', intentHash: intent.intentHash,
     outerSender: earnOperator.address, outerTarget: TURNKEY.wrapper, outerCalldata: '0x', outerValue: '0', outerNonce: 9,
-    executor: intent.walletAddress, innerTarget: intent.token, innerCalldata: intent.calldata, innerValue: '0', receiptStatus: 'success', confirmations: '11', blockHash: earnHash,
+    executor: intent.walletAddress, innerTarget: intent.payload.contractAddress, innerCalldata: intent.calldata, innerValue: '0', receiptStatus: 'success', confirmations: '11', blockHash: earnHash,
     authorizationSigner: intent.walletAddress, executionSigner: intent.walletAddress, delegate: TURNKEY.delegate, wrapperCodeHash: TURNKEY.wrapperCodeHash, delegateCodeHash: TURNKEY.delegateCodeHash,
     authorizationNonce: 0, executionNonce: '0', executionDeadline: Math.floor(intent.expiresAt/1000), eventVerified: true, stateVerified: true,
     allowance: intent.amount, allowanceAtReceipt: intent.amount, stateBlockNumber: '110', stateBlockHash: earnHash,
   } };
+  if (action === 'SUPPLY' && r.proof?.mode === 'keeperhub-sponsored-eip7702') {
+    Object.assign(r.proof,{ authorizationMode: 'existing-delegation', outerType: 'eip1559', authorizationSigner: null, authorizationNonce: null, allowance: '0', allowanceAtReceipt: '0',
+      supply: { tokenBalanceBefore: '1000000000000000000', tokenBalanceAfter: '500000000000000000', allowanceBefore: intent.amount, scaledBalanceBefore: '0', scaledBalanceAfter: intent.amount, scaledMinted: intent.amount, currentScaledBalance: intent.amount, liquidityIndex: '1000000000000000000000000000', accruedInterest: '0', aTokenImplementation: intent.aToken, aTokenCodeHash: earnHash } });
+  }
   await recordRoutes(page,r,false);
   let posts = 0; page.on('request',request => { if (request.url().includes('/api/earn/') && request.method() === 'POST') posts++; });
   await page.goto(`/app/earn/${intent.id}`);
   await expect(page.getByText('Independent Aave proof: VERIFIED',{ exact: true })).toBeVisible();
   await expect(page.getByText('Outer sender (gas sponsor)',{ exact: true })).toBeVisible();
-  await expect(page.getByText('0.5 LINK at block 110',{ exact: true })).toBeVisible();
+  await expect(page.getByText(`${action === 'SUPPLY' ? '0' : '0.5'} LINK at block 110`,{ exact: true })).toBeVisible();
+  if (action === 'SUPPLY') {
+    await expect(page.getByText(/No new delegation signature is claimed/)).toBeVisible();
+    await expect(page.getByText('Underlying LINK debit',{ exact: true })).toBeVisible();
+    await expect(page.getByText('Exact Approval event and allowance verified.',{ exact: true })).toHaveCount(0);
+  }
   await expect(page.getByRole('button',{ name: 'Run KeeperHub dry run' })).toBeDisabled();
   await expect(page.getByRole('button',{ name: 'Authorize & execute with KeeperHub' })).toBeDisabled();
   await page.getByText('Full sponsored proof (outer and inner calldata)',{ exact: true }).click();

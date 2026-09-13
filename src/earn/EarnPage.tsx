@@ -100,7 +100,7 @@ export default function EarnPage({ account, onConnect }: { account: Address | nu
       </section>
       <section className="execution-card"><h2>Execution proof</h2><p>KeeperHub ID: {r.keeperHubExecutionId || 'Not available'}</p><p>Independent Aave proof: {r.proof?.verified ? 'VERIFIED' : 'Not verified'}</p>{r.txHash ? <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noreferrer">View Sepolia transaction</a> : <p>No transaction hash yet.</p>}
         {r.proof?.mode === 'keeperhub-sponsored-eip7702' ? <>
-          <p>Mode: keeperhub-sponsored-eip7702. Sponsor and executor are distinct; both executor signatures and the exact inner call were verified.</p>
+          <p>Mode: keeperhub-sponsored-eip7702. Sponsor and executor are distinct; {r.proof.authorizationMode === 'existing-delegation' ? 'historical delegation and the executor\u2019s signed inner call were verified. No new delegation signature is claimed.' : 'both executor signatures and the exact inner call were verified.'}</p>
           <dl className="earn-grid">
             <div><dt>Outer sender (gas sponsor)</dt><dd>{r.proof.outerSender}</dd></div>
             <div><dt>Outer target (allowlisted Turnkey wrapper)</dt><dd>{r.proof.outerTarget}</dd></div>
@@ -109,7 +109,8 @@ export default function EarnPage({ account, onConnect }: { account: Address | nu
             <div><dt>Receipt / confirmations at verification</dt><dd>{r.proof.receiptStatus} / {r.proof.confirmations}</dd></div>
             <div><dt>Verified allowance snapshot</dt><dd>{units(r.proof.allowance,r.intent.decimals)} {earnAssetFor(r.intent.token).symbol} at block {r.proof.stateBlockNumber}</dd></div>
           </dl>
-          <p>Exact Approval event and allowance verified. This is a saved verification snapshot, not a continuously refreshed allowance.</p>
+          {r.proof.supply ? <><p>Exact Supply, underlying Transfer and aLINK Mint verified. Approval consumed; principal is checked separately from accrued interest.</p><dl className="earn-grid"><div><dt>Scaled aLINK minted (raw)</dt><dd>{r.proof.supply.scaledMinted}</dd></div><div><dt>Underlying LINK debit</dt><dd>{units((BigInt(r.proof.supply.tokenBalanceBefore)-BigInt(r.proof.supply.tokenBalanceAfter)).toString(),r.intent.decimals)} LINK</dd></div></dl></> : <p>Exact Approval event and allowance verified.</p>}
+          <p>This is a saved verification snapshot, not continuously refreshed chain state.</p>
           <details><summary>Full sponsored proof (outer and inner calldata)</summary><pre>{JSON.stringify(r.proof,null,2)}</pre></details>
         </> : r.proof?.verified ? <p>Mode: direct. Exact sender, target, calldata and receipt events verified.</p> : null}
         {r.broadcastAttemptedAt !== null && !r.keeperHubExecutionId && r.status === 'CONFIRMING' ? <><label>Original KeeperHub execution ID<input value={recoveryId} onChange={e => setRecoveryId(e.target.value)}/></label><button disabled={Boolean(busy) || !reviewed || !authorized || !/^[\w-]{1,200}$/.test(recoveryId)} onClick={() => void run('recover')}>Verify & recover ID (no resend)</button></> : null}

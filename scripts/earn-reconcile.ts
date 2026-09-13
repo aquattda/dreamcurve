@@ -45,8 +45,11 @@ try {
   console.log(JSON.stringify({ step: 1, status: r.status, frozenIntentUnchanged: true, keeperHubExecutionId: r.keeperHubExecutionId, txHash: r.txHash, proof: r.proof, failure: r.failure },null,2));
   if (r.status !== 'SUCCESS' || !r.proof?.verified || r.proof.mode !== 'keeperhub-sponsored-eip7702') { process.exitCode = 1; }
   else if (simulateOnly) {
+    const rows = await store.list(original.executor);
+    if (rows.some(x => x.intent.action === 'SUPPLY' && x.broadcastAttemptedAt !== null)) throw new Error('An existing SUPPLY attempt must be reconciled first. Do not prepare a duplicate.');
+    for (const old of rows) if (old.intent.action === 'SUPPLY' && old.broadcastAttemptedAt === null && old.intent.expiresAt <= Date.now()) await service.refresh(old.intent.id);
     // Reuse an unsubmitted fresh review if this read/simulation tool is repeated.
-    const existing = (await store.list(original.executor)).find(x => x.intent.action === 'SUPPLY' && x.intent.amount === '500000000000000000' && x.intent.token === original.token && x.intent.operatorAddress === original.operator && x.broadcastAttemptedAt === null && x.intent.expiresAt > Date.now() && canonicalJson(x.intent.payload) === canonicalJson(supply.payload));
+    const existing = rows.find(x => x.intent.action === 'SUPPLY' && x.intent.amount === '500000000000000000' && x.intent.token === original.token && x.intent.operatorAddress === original.operator && x.broadcastAttemptedAt === null && x.intent.expiresAt > Date.now() && canonicalJson(x.intent.payload) === canonicalJson(supply.payload));
     const prepared: EarnRecord = existing || await service.prepare('SUPPLY','0.5',original.operator,'LINK');
     const simulated = await service.simulate(prepared.intent.id);
     if (simulated.broadcastAttemptedAt !== null || simulated.keeperHubExecutionId || simulated.txHash) throw new Error('STEP 2 must remain unsubmitted.');

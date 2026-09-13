@@ -125,6 +125,14 @@ describe('Earn durable execution',() => {
     expect((await k.store.get(i.id))?.status).toBe('SUCCESS'); expect(k.verify).toHaveBeenCalled();
   });
   it('rechecks balances after review',async () => { const k = kit(), { i,signature } = await ready(k); k.snapshot.mockResolvedValue({ ...earnSnapshot(), tokenBalance: '0' }); expect((await k.service.execute(i.id,signature)).status).toBe('BLOCKED'); expect(k.writes()).toHaveLength(0); });
+  it('blocks unsupported supply proof routing before KeeperHub simulation or broadcast',async () => {
+    const k = kit(), i = earnFixture('SUPPLY','route-readiness','LINK');
+    k.snapshot.mockResolvedValue(earnSnapshot('LINK'));
+    k.service.protocol.checkSupplyRoute = vi.fn().mockRejectedValue(new Error('Changed delegate deployment'));
+    const simulate = vi.spyOn(k.keeper,'simulate');
+    await k.store.insert(initialEarn(i)); const r = await k.service.simulate(i.id);
+    expect(r.status).toBe('BLOCKED'); expect(simulate).not.toHaveBeenCalled(); expect(k.writes()).toHaveLength(0);
+  });
   it('reconciles an existing attempt with immutable execution context and no broadcast',async () => {
     const k = kit(), i = earnFixture('APPROVAL'), r = initialEarn(i);
     r.status = 'CONFIRMING'; r.broadcastAttemptedAt = i.createdAt; r.keeperHubExecutionId = 'earn-test-exec'; r.txHash = earnHash;

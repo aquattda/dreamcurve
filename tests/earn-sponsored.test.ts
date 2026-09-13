@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { concatHex, encodeAbiParameters, encodeEventTopics, encodeFunctionData, erc20Abi, toHex, type Hex, type Transaction, type TransactionReceipt } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { AAVE, EARN_CHAIN, earnCall, freezeEarn, type EarnProof } from '../shared/earn';
+import { AAVE, EARN_CHAIN, earnAbi, earnCall, freezeEarn, type EarnProof } from '../shared/earn';
+import { A_LINK, aTokenProofAbi } from '../server/earn-supply';
 import { verifyEarnEvents } from '../server/earn-protocol';
 import { decodeWrapper, executionTypes, TURNKEY, turnkeyAbi, verifySponsoredEnvelope, type EarnVerificationContext, type SponsoredChainEvidence } from '../server/earn-sponsored';
 import { earnFixture, earnHash, earnOperator, earnWallet } from './earn-fixtures';
@@ -99,4 +100,97 @@ describe('strict Turnkey sponsored approval proof',() => {
     await expect(verify(f)).rejects.toThrow('authorization chain');
   });
   it('requires the original durable context',async () => { const f = await fixture(); await expect(verifySponsoredEnvelope(f.i,earnHash,f.tx,f.r,f.e)).rejects.toThrow('durable execution binding'); });
+});
+
+async function supplyFixture(reused = true) {
+  const f = await fixture(), { intentHash: _, ...body } = f.i;
+  f.i = freezeEarn({ ...body, action: 'SUPPLY', ...earnCall('SUPPLY',body.amount,body.walletAddress,body.token) });
+  f.context.intentHash = f.i.intentHash;
+  const nonce = reused ? 1n : 0n, deadline = Math.floor(f.i.expiresAt/1000), amount = BigInt(f.i.amount);
+  const signature = await earnOperator.signTypedData({ domain: { name: 'TKGasDelegate', version: '1.1', chainId: EARN_CHAIN, verifyingContract: f.i.walletAddress }, types: executionTypes, primaryType: 'Execution', message: { nonce, deadline, to: f.i.pool, value: 0n, data: f.i.calldata } });
+  f.tx = { ...f.tx, type: reused ? 'eip1559' : 'eip7702', authorizationList: reused ? undefined : f.tx.authorizationList,
+    input: encodeFunctionData({ abi: turnkeyAbi, functionName: 'execute', args: [f.i.walletAddress,f.i.pool,0n,concatHex([signature,toHex(nonce,{ size: 16 }),toHex(deadline,{ size: 4 }),f.i.calldata])] }) } as Transaction;
+  f.r.type = f.tx.type;
+  f.r.logs = [
+    { address: f.i.pool, topics: encodeEventTopics({ abi: earnAbi, eventName: 'Supply', args: { reserve: f.i.token, onBehalfOf: f.i.walletAddress, referralCode: 0 } }), data: encodeAbiParameters([{ type: 'address' },{ type: 'uint256' }],[f.i.walletAddress,amount]) },
+    { address: f.i.token, topics: encodeEventTopics({ abi: erc20Abi, eventName: 'Transfer', args: { from: f.i.walletAddress, to: f.i.aToken } }), data: toHex(amount,{ size: 32 }) },
+  ] as TransactionReceipt['logs'];
+  f.e = { ...f.e, executorCodeBefore: f.e.executorCode, executionNonceBefore: nonce, executionNonceAfter: nonce+1n,
+    wrapperCodeHashBefore: TURNKEY.wrapperCodeHash, delegateCodeHashBefore: TURNKEY.delegateCodeHash,
+    authorizationNonceBefore: reused ? 1 : 0, authorizationNonceAfter: 1, allowanceAtReceipt: 0n, currentAllowance: 0n,
+    supply: { tokenBefore: amount*2n, tokenAfter: amount, allowanceBefore: amount, scaledBefore: 0n, scaledAfter: amount, currentScaled: amount, previousIndexBefore: 0n, indexAfter: 10n**27n,
+      implementationBefore: `0x${'0'.repeat(24)}${A_LINK.implementation.slice(2)}`, implementationAfter: `0x${'0'.repeat(24)}${A_LINK.implementation.slice(2)}`, implementationCodeHash: A_LINK.codeHash, pool: f.i.pool, underlying: f.i.token } };
+  mintEvent(f,amount,0n,10n**27n);
+  return f;
+}
+function mintEvent(f: Fixture, value: bigint, interest: bigint, index: bigint) {
+  f.r.logs[2] = { address: f.i.aToken, topics: encodeEventTopics({ abi: aTokenProofAbi, eventName: 'Mint', args: { caller: f.i.walletAddress, onBehalfOf: f.i.walletAddress } }), data: encodeAbiParameters([{ type: 'uint256' },{ type: 'uint256' },{ type: 'uint256' }],[value,interest,index]) } as TransactionReceipt['logs'][number];
+}
+describe.each([false,true])('strict sponsored LINK supply (reuse delegation = %s)',reused => {
+  it('verifies exact supply with independently checked state and explicit authorization mode',async () => {
+    const f = await supplyFixture(reused), original = JSON.stringify(f.i), proof = await verify(f);
+    if (proof.mode !== 'keeperhub-sponsored-eip7702') throw new Error('mode');
+    expect(proof.authorizationMode).toBe(reused ? 'existing-delegation' : 'included-eip7702');
+    expect(proof.authorizationSigner).toBe(reused ? null : f.i.walletAddress);
+    expect(proof.outerType).toBe(reused ? 'eip1559' : 'eip7702');
+    expect(proof.executionSigner).toBe(f.i.walletAddress); expect(proof.allowance).toBe('0');
+    expect(proof.supply?.scaledMinted).toBe(f.i.amount); expect(JSON.stringify(f.i)).toBe(original);
+  });
+  it('separates accrued interest from principal using exact ray half-up accounting',async () => {
+    const f = await supplyFixture(reused), s = f.e.supply!, ray = 10n**27n, amount = BigInt(f.i.amount);
+    s.scaledBefore = amount; s.previousIndexBefore = ray; s.indexAfter = ray*11n/10n;
+    const interest = amount/10n, minted = (amount*ray+s.indexAfter/2n)/s.indexAfter;
+    s.scaledAfter = amount+minted; s.currentScaled = s.scaledAfter;
+    mintEvent(f,amount+interest,interest,s.indexAfter);
+    const proof = await verify(f); if (proof.mode !== 'keeperhub-sponsored-eip7702') throw new Error('mode');
+    expect(proof.supply?.scaledMinted).toBe(minted.toString()); expect(proof.supply?.accruedInterest).toBe(interest.toString());
+  });
+  const cases: [string,(f: Fixture) => void][] = [
+    ['wrong executor',f => wrapper(f,{ executor: earnWallet })],
+    ['wrong target',f => wrapper(f,{ target: f.i.token })],
+    ['wrong amount despite correct events',f => inner(f,earnCall('SUPPLY','1',f.i.walletAddress,f.i.token).calldata)],
+    ['wrong beneficiary',f => inner(f,earnCall('SUPPLY',f.i.amount,earnWallet,f.i.token).calldata)],
+    ['wrong referral code',f => inner(f,encodeFunctionData({ abi: earnAbi, functionName: 'supply', args: [f.i.token,BigInt(f.i.amount),f.i.walletAddress,1] }))],
+    ['wrong chain',f => { f.tx.chainId = 1; }],
+    ['failed receipt',f => { f.r.status = 'reverted'; }],
+    ['wrong wrapper',f => { f.tx.to = earnWallet; }],
+    ['invalid inner signature',f => { const d = decodeWrapper(f.tx.input); wrapper(f,{ data: concatHex([`0x${'00'.repeat(65)}`,toHex(d.nonce,{ size: 16 }),toHex(d.deadline,{ size: 4 }),d.innerCalldata]) }); }],
+    ['replayed nonce',f => { f.e.executionNonceBefore = 99n; }],
+    ['nonce not consumed',f => { f.e.executionNonceAfter = f.e.executionNonceBefore!; }],
+    ['unrelated intent',f => { f.context.intentHash = earnHash; }],
+    ['unrelated receipt',f => { f.r.transactionHash = blockHash; }],
+    ['missing Supply',f => { f.r.logs.splice(0,1); }],
+    ['missing underlying Transfer',f => { f.r.logs.splice(1,1); }],
+    ['missing aToken Mint',f => { f.r.logs.splice(2,1); }],
+    ['duplicate mint',f => { f.r.logs.push(f.r.logs[2]); }],
+    ['wrong mint token',f => { f.r.logs[2].address = f.i.token; }],
+    ['wrong minted principal',f => mintEvent(f,1n,0n,10n**27n)],
+    ['invented accrued interest',f => mintEvent(f,BigInt(f.i.amount)+1n,1n,10n**27n)],
+    ['wrong underlying debit',f => { f.e.supply!.tokenAfter += 1n; }],
+    ['extra approval',f => { f.e.supply!.allowanceBefore += 1n; }],
+    ['allowance not consumed',f => { f.e.allowanceAtReceipt = 1n; }],
+    ['current allowance changed',f => { f.e.currentAllowance = 1n; }],
+    ['scaled mint one unit wrong',f => { f.e.supply!.scaledAfter -= 1n; }],
+    ['current position changed',f => { f.e.supply!.currentScaled = 0n; }],
+    ['wrong liquidity index',f => { f.e.supply!.indexAfter = 0n; }],
+    ['upgraded aToken implementation',f => { f.e.supply!.implementationAfter = earnHash; }],
+    ['unknown aToken code',f => { f.e.supply!.implementationCodeHash = earnHash; }],
+    ['wrong aToken underlying',f => { f.e.supply!.underlying = earnWallet; }],
+    ['wrong aToken pool',f => { f.e.supply!.pool = earnWallet; }],
+    ['missing state evidence',f => { f.e.supply = undefined; }],
+  ];
+  it.each(cases)('rejects %s',async (_,mutate) => { const f = await supplyFixture(reused); mutate(f); await expect(verify(f)).rejects.toThrow(); });
+});
+describe('existing delegation is not a skipped authorization check',() => {
+  it.each(['missing delegation','changed delegate code','changed wrapper code','changed account nonce'])('rejects %s',async fault => {
+    const f = await supplyFixture();
+    if (fault === 'missing delegation') f.e.executorCodeBefore = '0x';
+    if (fault === 'changed delegate code') f.e.delegateCodeHashBefore = earnHash;
+    if (fault === 'changed wrapper code') f.e.wrapperCodeHashBefore = earnHash;
+    if (fault === 'changed account nonce') f.e.authorizationNonceAfter++;
+    await expect(verify(f)).rejects.toThrow();
+  });
+  it('does not treat missing EIP-7702 authorization as delegation reuse',async () => {
+    const f = await supplyFixture(false); f.tx.authorizationList = []; await expect(verify(f)).rejects.toThrow('single EIP-7702 authorization');
+  });
 });
